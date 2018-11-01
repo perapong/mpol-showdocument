@@ -1,0 +1,955 @@
+CREATE OR REPLACE PACKAGE pkgbw_campaignly_ship_process IS
+/******************************************************************************
+   NAME:       pkgbw_campaign_prepare_report
+   PURPOSE:
+
+   REVISIONS:
+   Ver        Date        Author           Description
+   ---------  ----------  ---------------  ------------------------------------
+   1.0        31/8/2012      Yokpol       1. Created this package.
+******************************************************************************/
+
+Procedure Return_By_Reason_Summary (Parm_OuCode Varchar2, Parm_FromDate  DATE, Parm_ToDate  DATE, Parm_FromFS  Varchar2 Default '00000', Parm_ToFS  Varchar2 Default '99999') ;
+Procedure Member_Sales_Summary (Parm_OuCode Varchar2, Parm_ShipDate  DATE, Parm_Member_Club Varchar2) ;
+Procedure Member_GC_Count (Parm_OuCode Varchar2, Parm_Campaign  Varchar2) ;
+Procedure Member_GC_Count_Daily (Parm_OuCode Varchar2, Parm_ShipDate  DATE) ;
+
+Procedure School_Sales_Summary (Parm_OuCode Varchar2, Parm_ShipDate  DATE) ;
+Procedure Member_Category_Sales_Summary (Parm_OuCode Varchar2, Parm_ShipDate  DATE, Parm_Member_Club Varchar2) ;
+
+Procedure Update_MSLGCL (Parm_OuCode Varchar2, Parm_ShipDate  DATE) ;
+Procedure Update_MSLGCM (Parm_OuCode Varchar2, Parm_Campaign  Varchar2) ;
+Procedure Update_MSLGCM2 (Parm_OuCode Varchar2, Parm_Campaign  Varchar2) ;
+Procedure Update_MSLGCM3 (Parm_OuCode Varchar2, Parm_Campaign  Varchar2) ;
+Procedure Update_MSLGCM4 (Parm_OuCode Varchar2, Parm_Campaign  Varchar2) ;
+Procedure Update_MSLGCM5 (Parm_OuCode Varchar2, Parm_Campaign  Varchar2) ;
+Procedure GCSA_Summary (Parm_OuCode Varchar2, Parm_Campaign  Varchar2) ;
+
+Procedure MainProcess (Parm_OuCode Varchar2);
+
+END pkgbw_campaignly_ship_process;
+/
+CREATE OR REPLACE PACKAGE BODY pkgbw_campaignly_ship_process IS
+
+Procedure Return_By_Reason_Summary (Parm_OuCode Varchar2, Parm_FromDate  DATE, Parm_ToDate  DATE, Parm_FromFS  Varchar2 Default '00000', Parm_ToFS  Varchar2 Default '99999')  is
+
+ Cursor Rec (Parm_OuCode Varchar2,Parm_FromDate  DATE, Parm_ToDate  DATE, Parm_FromFS  Varchar2, Parm_ToFS  Varchar2)  Is
+    select t.rbrou_code,t.rbrcampaign,t.rbrtrans_sdate,t.rbrtrans_edate,t.rbrbrand_code,t.rbrseq,t.rbrfinished_code,
+        t.rbrfinished_ldesc,t.rbrreason_code,t.rbrreason_ldesc,t.rbrreason_unit,t.rbrtotal_unit
+    from (
+        select trunc(rownum/((select count(*) from su_param_dtl where padparam_id='319')+0.0001))+1 rbrseq,x.*
+        from (
+            select Parm_OuCode rbrou_code,
+                pkgdb_desc.getprev_campaign('000',pkgdb_desc.getCurrent_Campaign,1) rbrcampaign,
+                case when Parm_FromDate is null then pkgdb_desc.getcampaign_sdate('000', pkgdb_desc.getprev_campaign('000', pkgdb_desc.getcurrent_campaign, 1))+1
+                   else Parm_FromDate end rbrtrans_sdate,
+                case when Parm_ToDate is null then pkgdb_desc.getcampaign_edate('000', pkgdb_desc.getprev_campaign('000', pkgdb_desc.getcurrent_campaign, 1))+1
+                   else Parm_ToDate end rbrtrans_edate,
+                f.padentry_code rbrbrand_code,
+                c.bdtfinished_code rbrfinished_code,
+                d.pdtfinished_ldesc rbrfinished_ldesc,
+                g.padentry_code rbrreason_code,
+                g.padentry_ldesc rbrreason_ldesc,
+                sum(case when b.rtdreason_code = g.padentry_code then b.rtdreturn_unit
+                        else 0 end) rbrreason_unit,
+                sum(b.rtdreturn_unit) rbrtotal_unit
+            from om_return_hdr a
+                inner join om_return_dtl b
+                    on a.rthou_code = b.rtdou_code
+                        and a.rthreturn_no = b.rtdreturn_no
+                inner join om_billing_dtl c
+                    on a.rthou_code = c.bdtou_code
+                        and b.rtdbill_campaign = c.bdtcampaign
+                        and b.rtdbill_code = c.bdtbill_code
+                inner join db_product_dtl d
+                    on c.bdtfinished_code = d.pdtfinished_code
+                left outer join om_transaction_hdr e
+                    on a.rthou_code=e.ohdou_code
+                        and b.rtdrefcn_trans_year = e.ohdyear
+                        and b.rtdrefcn_trans_group = e.ohdtrans_group
+                        and b.rtdrefcn_trans_no = e.ohdtrans_no
+                inner join su_param_dtl f
+                    on d.pdtbrand=f.padentry_code and f.padparam_id=1
+                full join su_param_dtl g
+                    on g.padparam_id = 319
+            where a.rthou_code=Parm_OuCode
+                and trunc(a.rthtrans_date) between case when Parm_FromDate is null then pkgdb_desc.getcampaign_sdate('000', pkgdb_desc.getprev_campaign('000', pkgdb_desc.getcurrent_campaign, 1))+1
+                    else Parm_FromDate end
+                and case when Parm_ToDate is null then pkgdb_desc.getcampaign_edate('000', pkgdb_desc.getprev_campaign('000', pkgdb_desc.getcurrent_campaign, 1))+1
+                    else Parm_ToDate end
+                and c.bdtfinished_code between case when Parm_FromFS is null or Parm_FromFS='null' then '00000' else Parm_FromFS end
+                and case when Parm_ToFS is null or Parm_ToFS='null' then '99999' else Parm_ToFS end
+                and a.rthreturn_code='2'
+                and a.rthreturn_status<>'9'
+                and (e.ohdtrans_status<>'9' or e.ohdtrans_status is null)
+            group by f.padentry_code,c.bdtfinished_code,d.pdtfinished_ldesc,g.padentry_code,g.padentry_ldesc
+            order by f.padentry_code,rbrtotal_unit desc,c.bdtfinished_code,g.padentry_code
+        ) x
+    ) t
+    order by t.rbrbrand_code,t.rbrtotal_unit desc,t.rbrreason_code;
+
+ TxtMsg   VARCHAR2(500);
+ ProcName VARCHAR2(100);
+
+Begin
+ ProcName := 'Return_By_Reason_Summary';
+
+ EXECUTE IMMEDIATE 'TRUNCATE TABLE WH_RETURN_BY_REASON';
+
+ pkgbw_it.Create_ErrorLog(ProcName ,NULL ,'START' ,'Start :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+   For Trx In Rec (Parm_OuCode,Parm_FromDate,Parm_ToDate,Parm_FromFS,Parm_ToFS) Loop
+
+        Begin
+        Insert into WH_RETURN_BY_REASON(rbrou_code, rbrcampaign, rbrtrans_sdate, rbrtrans_edate, rbrbrand_code, rbrseq, rbrfinished_code, rbrfinished_ldesc, rbrreason_code,rbrreason_ldesc, rbrreason_unit, rbrtotal_unit)
+                        Values (Parm_OuCode , Trx.rbrcampaign, Trx.rbrtrans_sdate, Trx.rbrtrans_edate, Trx.rbrbrand_code, Trx.rbrseq, Trx.rbrfinished_code , Trx.rbrfinished_ldesc,Trx. rbrreason_code,Trx.rbrreason_ldesc, Trx.rbrreason_unit, Trx.rbrtotal_unit);
+               Exception When Others Then
+                    Begin
+                        TxtMsg   := 'Ins: WH_RETURN_BY_REASON (rbrou_code, rbrcampaign, rbrtrans_sdate)..'||Trx.rbrfinished_code||','||Trx.rbrfinished_ldesc;
+                        pkgbw_it.Create_ErrorLog(ProcName,SQLCODE ,substr(SQLERRM,1,200) ,TxtMsg);
+                    End;
+        End;
+    End Loop;
+ Commit;
+ pkgbw_it.Create_ErrorLog(ProcName  ,NULL ,'END' ,'End :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+End Return_By_Reason_Summary;
+
+Procedure Member_Sales_Summary (Parm_OuCode Varchar2, Parm_ShipDate  DATE, Parm_Member_Club Varchar2) is
+
+ Cursor Rec (Parm_OuCode Varchar2, Parm_ShipDate  DATE, Parm_Member_Club Varchar2)  Is
+    select
+        substr(c.mplcampaign,5,2) bmsyear,
+        c.mplcampaign bmscampaign,
+        c.loc_code bmsloc_code,
+        c.divcode bmsdiv,
+        c.nsm bmsnsm,
+        a.ohdrep_seq bmsrep_seq,
+        a.ohdrep_code bmsrep_code,
+        case d.mmdclub_code when 'GC1' then d.mmdmember_class when '2BU' then 150 when 'SCH' then 500 end  bmsmember_class,
+        count(*) bmsnumber_order,
+        sum(a.ohdttl_amount_befdisc) bmsgross_sales,
+        sum(a.ohdttl_amount_aftdisc) bmsnet_sales,
+        sum(a.ohdvat_amount_aftdisc) bmsvat,
+        sum(b.oblgross_mistine) bmsgross_mistine,
+        sum(b.oblgross_fridays) bmsgross_friday,
+        sum(b.oblgross_faris) bmsgross_faris,
+        sum(b.oblnet_mistine) bmsnet_mistine,
+        sum(b.oblnet_fridays) bmsnet_friday,
+        sum(b.oblnet_faris) bmsnet_faris,
+        sum(b.oblvat_mistine) bmsvat_mistine,
+        sum(b.oblvat_fridays) bmsvat_friday,
+        sum(b.oblvat_faris) bmsvat_faris,
+        e.reploa bmsloa,
+        'Member_Sales_Su' bmsupd_by,
+        c.shipdate bmsupd_date
+    from om_transaction_hdr a
+    inner join om_transaction_hdrg b on
+        a.ohdou_code=b.oblou_code and a.ohdyear=b.oblyear and a.ohdtrans_group=b.obltrans_group
+        and a.ohdtrans_no=b.obltrans_no
+    inner join bemv$_mailplan c on
+        a.ohdou_code=c.mplou_code and a.ohdloc_code=c.loc_code and
+        a.ohdtrans_date>=c.start_ship and a.ohdtrans_date<=c.end_ship
+    inner join db_member_dtl d on
+        a.ohdou_code=d.mmdou_code and a.ohdrep_seq=d.mmdrep_seq and d.mmdclub_code=Parm_Member_Club and
+        d.mmdmember_date<=c.shipdate
+    inner join ms_representative e on
+        a.ohdou_code=e.repou_code and a.ohdrep_seq=e.reprep_seq
+    inner join db_sales_location f on
+        a.ohdou_code=f.dstou_code
+        and substr(a.ohdrep_code,1,4)=f.dstloc_code
+        and f.dstloc_type='S'
+        and f.dstsales_group<>'99'
+    where a.ohdou_code=Parm_OuCode and a.ohdtrans_group='11' and a.ohdtrans_status<>'9'
+        and c.shipdate=Parm_ShipDate
+        and a.ohdtrans_date>=to_date('28/03/2013','dd/mm/rrrr')
+        and pkgbw_it.cy2yc(a.ohdord_campaign)>='201307'
+        and not exists
+        (select 1 from bw_msl_campaign_sales x
+         where x.bmsou_code=a.ohdou_code and x.bmsyear=a.ohdyear and x.bmscampaign=c.mplcampaign and x.bmsrep_seq=a.ohdrep_seq)
+    group by a.ohdou_code,substr(c.mplcampaign,5,2),c.mplcampaign,c.loc_code,c.divcode,c.nsm,a.ohdrep_seq,a.ohdrep_code,
+        case d.mmdclub_code when 'GC1' then d.mmdmember_class when '2BU' then 150 when 'SCH' then 500 end,e.reploa,c.shipdate;
+
+ TxtMsg   VARCHAR2(500);
+ ProcName VARCHAR2(100);
+
+Begin
+ProcName := 'Member_Sales_Summary';
+
+pkgbw_it.Create_ErrorLog(ProcName ,NULL ,'START' ,'Start :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+   For Trx In Rec (Parm_OuCode,Parm_ShipDate,Parm_Member_Club) Loop
+
+        Begin
+        Insert into BW_MSL_CAMPAIGN_SALES(bmsou_code, bmsyear, bmscampaign, bmsloc_code, bmsdiv, bmsnsm, bmsrep_seq, bmsrep_code, bmsmember_class,
+                                    bmsnumber_order, bmsgross_sales,bmsnet_sales,bmsvat,bmsgross_mistine,bmsgross_friday,bmsgross_faris,bmsnet_mistine,bmsnet_friday,
+                                    bmsnet_faris,bmsvat_mistine,bmsvat_friday,bmsvat_faris,bmsloa,bmsupd_by,bmsupd_date)
+                        Values (Parm_OuCode , Trx.bmsyear, Trx.bmscampaign, Trx.bmsloc_code, Trx.bmsdiv, Trx.bmsnsm, Trx.bmsrep_seq , Trx.bmsrep_code,Trx. bmsmember_class,
+                                    Trx.bmsnumber_order, Trx.bmsgross_sales,Trx.bmsnet_sales,Trx.bmsvat,Trx.bmsgross_mistine,Trx.bmsgross_friday,Trx.bmsgross_faris,Trx.bmsnet_mistine,
+                                    Trx.bmsnet_friday,Trx.bmsnet_faris,Trx.bmsvat_mistine,Trx.bmsvat_friday,Trx.bmsvat_faris,Trx.bmsloa,Trx.bmsupd_by,Trx.bmsupd_date);
+               Exception When Others Then
+                    Begin
+                        TxtMsg   := 'Ins: BW_MSL_CAMPAIGN_SALES (bmsou_code, bmsyear, bmscampaign)..'||Trx.bmsrep_code||','||Trx.bmsmember_class;
+                        pkgbw_it.Create_ErrorLog(ProcName,SQLCODE ,substr(SQLERRM,1,200) ,TxtMsg);
+                    End;
+        End;
+    End Loop;
+ Commit;
+ pkgbw_it.Create_ErrorLog(ProcName  ,NULL ,'END' ,'End :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+End Member_Sales_Summary;
+
+Procedure Member_GC_Count (Parm_OuCode Varchar2, Parm_Campaign  Varchar2) is
+
+ Cursor Rec (Parm_OuCode Varchar2, Parm_Campaign Varchar2)  Is
+--    select
+--        a.mmdou_code bmcou_code,
+--        c.mplcampaign bmccampaign,
+--        c.divcode bmcdiv,
+--        c.nsm bmcnsm,
+--        b.reploc_code bmcloc_code,
+--        sum(case when b.reprep_status<>'NM' and b.repappt_status is not null and b.repappt_status not in('RE','DE') then 1 else 0 end) bmcnumber_active,
+--        sum(case when a.mmdmember_date between  c.start_ship and c.end_ship then 1 else 0 end) bmcnumber_regist,
+--        sum(case when b.reprep_status='NM' or b.repappt_status is null or (b.repappt_status in('RE','DE') and b.repappt_st_date between c.start_ship and c.end_ship) then 1 else 0 end) bmcnumber_remove,
+--        'Member_GC_Count' bmcupd_by,
+--        sysdate bmcupd_date
+--    from db_member_dtl a
+--    inner join ms_representative b on
+--        a.mmdou_code=b.repou_code and a.mmdrep_seq=b.reprep_seq
+--    inner join  bemv$_mailplan c on
+--        a.mmdou_code=c.mplou_code and b.reploc_code=c.loc_code
+--    inner join db_sales_location f on
+--        a.mmdou_code=f.dstou_code
+--        and substr(a.mmdrep_code,1,4)=f.dstloc_code
+--        and f.dstloc_type='S'
+--        and f.dstsales_group<>'99'
+--    where a.mmdou_code=Parm_OuCode and a.mmdclub_code='GC1' and c.mplcampaign=Parm_Campaign
+--        and not exists
+--            (select 1 from bw_msl_campaign_count x
+--             where x.bmcou_code=a.mmdou_code and x.bmccampaign=c.mplcampaign and x.bmcloc_code=c.loc_code)
+--    group by a.mmdou_code,c.mplcampaign,c.divcode,c.nsm,b.reploc_code;
+
+--    select a.mplou_code bmcou_code,
+--        Parm_Campaign bmccampaign,
+--        a.divcode bmcdiv,
+--        a.nsm bmcnsm,
+--        a.loc_code bmcloc_code,
+--        count(*) bmcnumber_active,
+--        sum(case when b.mmdmember_campaign=Parm_Campaign then 1 else 0 end) bmcnumber_regist,
+--        sum(case when c.repappt_status in ('RE','DE') then 1 else 0 end) bmcnumber_remove,
+--        'Member_GC_Count' bmcupd_by,
+--        sysdate bmcupd_date
+--    from bemv$_mailplan a
+--    left outer join db_member_dtl b on
+--        a.mplou_code=b.mmdou_code
+--        and a.loc_code=substr(b.mmdrep_code,1,4)
+--        and a.campaign>=pkgbw_it.cy2yc(b.mmdmember_campaign)
+--    left outer join ms_representative c on
+--        b.mmdou_code=c.repou_code
+--        and b.mmdrep_seq=c.reprep_seq
+--    where a.mplou_code=Parm_OuCode
+--        and a.dstspecial_status='0'
+--        and pkgbw_it.cy2yc(b.mmdmember_campaign)<=pkgbw_it.cy2yc(Parm_Campaign)
+--        and b.mmdclub_code='GC1'
+--        and c.reprep_status<>'NM'
+--        and a.mplcampaign=Parm_Campaign
+--    and not exists
+--        (select 1 from as400_mslgcm2 b
+--         where b.camp=a.campaign and b.dist=a.loc_code
+--        )
+--    group by a.mplou_code,b.mmdmember_campaign,a.nsm,a.divcode,a.loc_code
+--    order by a.mplou_code,b.mmdmember_campaign,a.nsm,a.loc_code;
+
+    select Parm_OuCode ou_code,a.mplcampaign,a.divcode,a.nsm,a.loc_code,
+        sum(case when b.reploc_code is not null then 1 else 0 end) active,
+        sum(case when b.mmdmember_date=a.shipdate then 1 else 0 end) regist,
+        --# get Remove from ms_rep_goldclub, Sumeth 21 Oct 2013
+        --sum(case when b.reprep_st_date=a.shipdate and b.reprep_status='NM' then 1 else 0 end) remove,
+        nvl((select count(*)
+            from ms_rep_goldclub,
+                (select mplcampaign, min(shipdate) min_shipdate, max(shipdate) max_shipdate
+                from bemv$_mailplan
+                where mplcampaign = Parm_Campaign
+                group by mplcampaign)
+            where  to_date(dp_cancel_date,'dd/mm/rrrr') between trunc(min_shipdate) and trunc(max_shipdate)
+                   and substr(rep_code,1,4) = a.loc_code),0) remove,
+        'Member_GC_Count' upd_by,
+        sysdate upd_date
+    from
+        (select distinct a.mplcampaign,a.shipdate,a.loc_code,a.divcode,a.nsm
+         from bemv$_mailplan a
+         where a.dstspecial_status='0'
+            and a.mplou_code=Parm_OuCode and a.mplcampaign=Parm_Campaign) a
+    left outer join
+        (select b.reploc_code,a.mmdrep_seq,a.mmdrep_code,a.mmdmember_date,a.mmdupd_date,b.reprep_status,b.reprep_st_date
+         from db_member_dtl a
+         inner join ms_representative b on
+            a.mmdou_code=b.repou_code
+            and a.mmdrep_seq=b.reprep_seq
+            and a.mmdclub_code='GC1'
+            and a.mmdou_code=Parm_OuCode) b on
+        a.loc_code=b.reploc_code
+    group by a.mplcampaign,a.shipdate,a.loc_code,a.divcode,a.nsm,a.loc_code
+    order by ou_code,a.mplcampaign,a.nsm,a.loc_code;
+
+ TxtMsg   VARCHAR2(500);
+ ProcName VARCHAR2(100);
+
+Begin
+ProcName := 'Member_GC_Count';
+
+pkgbw_it.Create_ErrorLog(ProcName ,NULL ,'START' ,'Start :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+   begin
+    Delete from bw_msl_campaign_count where bmcou_code=Parm_OuCode and bmccampaign=Parm_Campaign;
+   end;
+
+   For Trx In Rec (Parm_OuCode,Parm_Campaign) Loop
+    Begin
+        Insert into BW_MSL_CAMPAIGN_COUNT(bmcou_code, bmccampaign, bmcdiv, bmcnsm, bmcloc_code, bmcnumber_active, bmcnumber_regist, bmcnumber_remove,
+                                    bmcupd_by,bmcupd_date)
+                        Values (Parm_OuCode , Trx.mplcampaign, Trx.divcode, Trx.nsm, Trx.loc_code, Trx.active,Trx.regist,Trx.remove,
+                                    Trx.upd_by, Trx.upd_date);
+               Exception When Others Then
+                    Begin
+                        TxtMsg   := 'Ins: BW_MSL_CAMPAIGN_COUNT (ou_code, mplcampaign)..'||Trx.mplcampaign||','||Trx.loc_code;
+                        pkgbw_it.Create_ErrorLog(ProcName,SQLCODE ,substr(SQLERRM,1,200) ,TxtMsg);
+                    End;
+        End;
+    End Loop;
+ Commit;
+ pkgbw_it.Create_ErrorLog(ProcName  ,NULL ,'END' ,'End :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+End Member_GC_Count;
+
+
+Procedure Member_GC_Count_Daily (Parm_OuCode Varchar2, Parm_ShipDate  DATE) is
+
+ Cursor Rec (Parm_OuCode Varchar2, Parm_ShipDate Varchar2)  Is
+    select Parm_OuCode ou_code,a.mplcampaign,a.divcode,a.nsm,a.loc_code,
+        sum(case when b.reploc_code is not null then 1 else 0 end) active,
+        sum(case when b.mmdmember_date=Parm_ShipDate then 1 else 0 end) regist,
+        --# get Remove from ms_rep_goldclub, Sumeth 21 Oct 2013
+        --sum(case when b.reprep_st_date=a.shipdate and b.reprep_status='NM' then 1 else 0 end) remove,
+        nvl((select count(*)
+            from ms_rep_goldclub
+            where  to_date(Parm_ShipDate,'dd/mm/rrrr') = trunc(dp_cancel_date) and
+                   dp_register = 'R' and
+                   substr(rep_code,1,4) = a.loc_code),0) remove,
+        'GC_Count_Daily' upd_by,
+        sysdate upd_date,
+        Parm_ShipDate shipdate
+    from
+        (select distinct a.mplcampaign,a.shipdate,a.loc_code,a.divcode,a.nsm
+         from bemv$_mailplan a
+         where a.mplou_code=Parm_OuCode and a.dstspecial_status='0'
+            and a.mplcampaign=(select distinct a.mplcampaign from bemv$_mailplan a where a.shipdate=Parm_ShipDate)) a
+    left outer join
+        (select b.reploc_code,a.mmdrep_seq,a.mmdrep_code,a.mmdmember_date,a.mmdupd_date,b.reprep_status,b.reprep_st_date
+         from db_member_dtl a
+         inner join ms_representative b on
+            a.mmdou_code=b.repou_code
+            and a.mmdrep_seq=b.reprep_seq
+            and a.mmdclub_code='GC1'
+            and a.mmdou_code=Parm_OuCode) b on
+        a.loc_code=b.reploc_code
+    group by a.mplcampaign,a.shipdate,a.loc_code,a.divcode,a.nsm,a.loc_code
+    order by a.mplcampaign,a.shipdate,a.loc_code,a.divcode,a.nsm,a.loc_code;
+
+ TxtMsg   VARCHAR2(500);
+ ProcName VARCHAR2(100);
+
+Begin
+ProcName := 'Member_GC_Count_Daily';
+
+pkgbw_it.Create_ErrorLog(ProcName ,NULL ,'START' ,'Start :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+   begin
+    Delete from bw_msl_campaign_count_daily where bmcou_code=Parm_OuCode and bmcshipdate=Parm_ShipDate;
+   end;
+
+   For Trx In Rec (Parm_OuCode,Parm_ShipDate) Loop
+
+        Begin
+        Insert into BW_MSL_CAMPAIGN_COUNT_DAILY (bmcou_code, bmccampaign, bmcdiv, bmcnsm, bmcloc_code, bmcnumber_active, bmcnumber_regist, bmcnumber_remove,
+                                    bmcupd_by,bmcupd_date,bmcshipdate)
+                        Values (Parm_OuCode , Trx.mplcampaign, Trx.divcode, Trx.nsm, Trx.loc_code, Trx.active,Trx.regist,Trx.remove,
+                                    Trx.upd_by, Trx.upd_date, Trx.shipdate);
+               Exception When Others Then
+                    Begin
+                        TxtMsg   := 'Ins: BW_MSL_CAMPAIGN_COUNT_DAILY (ou_code, mplcampaign)..'||Trx.mplcampaign||','||Trx.loc_code;
+                        pkgbw_it.Create_ErrorLog(ProcName,SQLCODE ,substr(SQLERRM,1,200) ,TxtMsg);
+                    End;
+        End;
+    End Loop;
+ Commit;
+ pkgbw_it.Create_ErrorLog(ProcName  ,NULL ,'END' ,'End :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+End Member_GC_Count_Daily;
+
+Procedure School_Sales_Summary (Parm_OuCode Varchar2, Parm_ShipDate  DATE) is
+
+ Cursor Rec (Parm_OuCode Varchar2, Parm_ShipDate  DATE)  Is
+    select
+        substr(c.mplcampaign,5,2) bmsyear,
+        a.ohdtrans_campaign bmscampaign,
+        c.loc_code bmsloc_code,
+        c.divcode bmsdiv,
+        c.nsm bmsnsm,
+        a.ohdrep_seq bmsrep_seq,
+        a.ohdrep_code bmsrep_code,
+        null bmsmember_class,
+        count(*) bmsnumber_order,
+        sum(a.ohdttl_amount_befdisc) bmsgross_sales,
+        sum(a.ohdttl_amount_aftdisc + a.ohdvat_amount_aftdisc) bmsnet_sales,
+        sum(a.ohdvat_amount_aftdisc) bmsvat,
+        sum(b.oblgross_mistine) bmsgross_mistine,
+        sum(b.oblgross_fridays) bmsgross_friday,
+        sum(b.oblgross_faris) bmsgross_faris,
+        sum(b.oblnet_mistine) bmsnet_mistine,
+        sum(b.oblnet_fridays) bmsnet_friday,
+        sum(b.oblnet_faris) bmsnet_faris,
+        sum(b.oblvat_mistine) bmsvat_mistine,
+        sum(b.oblvat_fridays) bmsvat_friday,
+        sum(b.oblvat_faris) bmsvat_faris,
+        e.reploa bmsloa,
+        'Member_Sales_Su' bmsupd_by,
+        sysdate bmsupd_date
+    from om_transaction_hdr a
+    inner join om_transaction_hdrg b on
+        a.ohdou_code=b.oblou_code and a.ohdtrans_no=b.obltrans_no
+    inner join bemv$_mailplan c on
+        a.ohdou_code=c.mplou_code and a.ohdloc_code=c.loc_code and
+        a.ohdtrans_date>=c.start_ship and a.ohdtrans_date<=c.end_ship
+    inner join ms_representative e on
+        a.ohdou_code=e.repou_code and a.ohdrep_seq=e.reprep_seq
+    inner join db_sales_location f on
+        a.ohdou_code=f.dstou_code
+        and substr(a.ohdrep_code,1,4)=f.dstloc_code
+        and f.dstloc_type='S'
+        and f.dstsales_group<>'99'
+    where a.ohdou_code=Parm_OuCode and a.ohdtrans_group='11' and e.reppre_name='004' and a.ohdtrans_status<>'9'
+        and c.shipdate=Parm_ShipDate
+        and not exists
+        (select 1 from bw_msl_campaign_sales x
+         where x.bmsou_code=a.ohdou_code and x.bmsyear=a.ohdyear and x.bmscampaign=a.ohdtrans_campaign and x.bmsrep_seq=a.ohdrep_seq)
+    group by a.ohdou_code,substr(c.mplcampaign,5,2),a.ohdtrans_campaign,c.loc_code,c.divcode,c.nsm,a.ohdrep_seq,a.ohdrep_code,a.ohdrep_name,e.reploa;
+
+ TxtMsg   VARCHAR2(500);
+ ProcName VARCHAR2(100);
+
+Begin
+ProcName := 'School_Sales_Summary';
+
+pkgbw_it.Create_ErrorLog(ProcName ,NULL ,'START' ,'Start :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+   For Trx In Rec (Parm_OuCode,Parm_ShipDate) Loop
+
+        Begin
+        Insert into BW_MSL_CAMPAIGN_SALES(bmsou_code, bmsyear, bmscampaign, bmsloc_code, bmsdiv, bmsnsm, bmsrep_seq, bmsrep_code, bmsmember_class,
+                                    bmsnumber_order, bmsgross_sales,bmsnet_sales,bmsvat,bmsgross_mistine,bmsgross_friday,bmsgross_faris,bmsnet_mistine,bmsnet_friday,
+                                    bmsnet_faris,bmsvat_mistine,bmsvat_friday,bmsvat_faris,bmsloa,bmsupd_by,bmsupd_date)
+                        Values (Parm_OuCode , Trx.bmsyear, Trx.bmscampaign, Trx.bmsloc_code, Trx.bmsdiv, Trx.bmsnsm, Trx.bmsrep_seq , Trx.bmsrep_code,Trx. bmsmember_class,
+                                    Trx.bmsnumber_order, Trx.bmsgross_sales,Trx.bmsnet_sales,Trx.bmsvat,Trx.bmsgross_mistine,Trx.bmsgross_friday,Trx.bmsgross_faris,Trx.bmsnet_mistine,
+                                    Trx.bmsnet_friday,Trx.bmsnet_faris,Trx.bmsvat_mistine,Trx.bmsvat_friday,Trx.bmsvat_faris,Trx.bmsloa,Trx.bmsupd_by,Trx.bmsupd_date);
+               Exception When Others Then
+                    Begin
+                        TxtMsg   := 'Ins: BW_MSL_CAMPAIGN_SALES (bmsou_code, bmsyear, bmscampaign)..'||Trx.bmsrep_code||','||Trx.bmsmember_class;
+                        pkgbw_it.Create_ErrorLog(ProcName,SQLCODE ,substr(SQLERRM,1,200) ,TxtMsg);
+                    End;
+        End;
+    End Loop;
+ Commit;
+ pkgbw_it.Create_ErrorLog(ProcName  ,NULL ,'END' ,'End :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+End School_Sales_Summary;
+
+Procedure Member_Category_Sales_Summary (Parm_OuCode Varchar2, Parm_ShipDate  DATE, Parm_Member_Club Varchar2) is
+ PRAGMA  AUTONOMOUS_TRANSACTION;
+ Cursor Rec (Parm_OuCode Varchar2, Parm_ShipDate  DATE, Parm_Member_Club Varchar2)  Is
+    select
+        a.ohdou_code bccou_code,
+        substr(b.mplcampaign,5,2) bccyear,
+        b.mplcampaign bcccampaign,
+        b.loc_code bccloc_code,
+        b.divcode bccdiv,
+        b.nsm bccnsm,
+        a.ohdrep_seq bccrep_seq,
+        a.ohdrep_code bccrep_code,
+        case c.mmdclub_code when 'GC1' then c.mmdmember_class when '2BU' then 150 when 'SCH' then 500 end  bccmember_class,
+        g.prdbrand bccbrand,
+        e.bdtfinished_code bccfinished_code,
+        g.prdproduct_category1 bccproduct_category,
+        sum(d.odttrans_ttlunit) bcctrans_ttlunit,
+--        sum(d.odttrans_aft_discount) bcctrans_aft_discount,
+        sum(d.odttrans_aft_discount*pkgbw_it.Get_Finished_Code_Weight
+            ('000',d.odtbill_campaign,d.odtbill_code,e.bdtfinished_code)/100) bcctrans_aft_discount,
+        'Member_Sales_Ca' bcccre_by,
+        b.shipdate bcccre_date
+    from om_transaction_hdr a
+    inner join bemv$_mailplan b on
+        a.ohdou_code=b.mplou_code
+        and a.ohdloc_code=b.loc_code
+        and a.ohdtrans_date between b.start_ship and b.end_ship
+    inner join db_member_dtl c on
+        a.ohdou_code=c.mmdou_code
+        and a.ohdrep_seq=c.mmdrep_seq
+        and c.mmdclub_code=Parm_Member_Club
+    inner join om_transaction_dtl d on
+        a.ohdou_code=d.odtou_code
+        and a.ohdyear=d.odtyear
+        and a.ohdtrans_group=d.odttrans_group
+        and a.ohdtrans_no=d.odttrans_no
+    inner join om_billing_dtl e on
+        a.ohdou_code=e.bdtou_code
+        and d.odtbill_campaign=e.bdtcampaign
+        and d.odtbill_code=e.bdtbill_code
+    inner join db_product_dtl f on
+        e.bdtfinished_code=f.pdtfinished_code
+    inner join db_product g on
+        f.pdtproduct_code=g.prdproduct_code
+    inner join db_sales_location h on
+        a.ohdou_code=h.dstou_code
+        and substr(a.ohdrep_code,1,4)=h.dstloc_code
+        and h.dstloc_type='S'
+        and h.dstsales_group<>'99'
+    where a.ohdou_code=Parm_OuCode and a.ohdtrans_group='11' and a.ohdtrans_status<>'9' and d.odttrans_aft_discount>=0
+        and b.shipdate=Parm_ShipDate
+        and ((c.mmdclub_code='GC1' and c.mmdmember_date<=a.ohdtrans_date)
+          or  (c.mmdclub_code<>'GC1' and c.mmdmember_date<a.ohdtrans_date))
+        and not exists
+        (select 1 from bw_msl_campaign_category_sales x
+         where x.bccou_code=a.ohdou_code and x.bccyear=a.ohdyear and x.bcccampaign=b.mplcampaign and x.bccrep_seq=a.ohdrep_seq)
+    group by a.ohdou_code,substr(b.mplcampaign,5,2),b.mplcampaign,b.loc_code,b.divcode,b.nsm,a.ohdrep_seq,a.ohdrep_code,
+        case c.mmdclub_code when 'GC1' then c.mmdmember_class when '2BU' then 150 when 'SCH' then 500 end,
+        g.prdbrand,e.bdtfinished_code,g.prdproduct_category1,b.shipdate;
+
+ TxtMsg   VARCHAR2(500);
+ ProcName VARCHAR2(100);
+
+Begin
+ProcName := 'Member_Category_Sales_Summary';
+
+pkgbw_it.Create_ErrorLog(ProcName ,NULL ,'START' ,'Start :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+   For Trx In Rec (Parm_OuCode,Parm_ShipDate,Parm_Member_Club) Loop
+
+        Begin
+        Insert into BW_MSL_CAMPAIGN_CATEGORY_SALES(bccou_code, bccyear, bcccampaign, bccloc_code, bccdiv, bccnsm, bccrep_seq, bccrep_code, bccmember_class,
+                                    bccbrand,bccfinished_code,bccproduct_category,bcctrans_ttlunit,bcctrans_aft_discount,bcccre_by,bcccre_date)
+                        Values (Parm_OuCode , Trx.bccyear, Trx.bcccampaign, Trx.bccloc_code, Trx.bccdiv, Trx.bccnsm, Trx.bccrep_seq , Trx.bccrep_code,Trx. bccmember_class,
+                                    Trx.bccbrand, Trx.bccfinished_code, Trx.bccproduct_category,Trx.bcctrans_ttlunit,
+                                    Trx.bcctrans_aft_discount, Trx.bcccre_by, Trx.bcccre_date);
+               Exception When Others Then
+                    Begin
+                        TxtMsg   := 'Ins: BW_MSL_CAMPAIGN_CATEGORY_SALES (bccou_code, bccyear, bcccampaign)..'||Trx.bccrep_code||','||Trx.bccmember_class;
+                        pkgbw_it.Create_ErrorLog(ProcName,SQLCODE ,substr(SQLERRM,1,200) ,TxtMsg);
+                    End;
+        End;
+    End Loop;
+ Commit;
+ pkgbw_it.Create_ErrorLog(ProcName  ,NULL ,'END' ,'End :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+End Member_Category_Sales_Summary;
+
+Procedure Update_MSLGCL (Parm_OuCode Varchar2, Parm_Shipdate DATE) is
+begin
+pkgbw_it.Create_ErrorLog('Update_MSLGCL' ,NULL ,'START' ,'Start :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+    insert into as400_mslgcl
+--    select
+--        substr(a.mmdrep_code,1,4) distcode,
+--        to_number(substr(a.mmdrep_code,5,5)) mslno,
+--        to_number(substr(a.mmdrep_code,10,1)) chkdgt,
+--        lpad(a.mmdmember_class,1,'0') sts,
+--        to_numBer(to_char(a.mmdmember_date,'rrrrmmdd')) shipdate,
+--        to_numBer(to_char(a.mmdmember_date,'rrrrmmdd')) upddate,
+--        a.mmdrep_seq
+--    from db_member_dtl a
+--    inner join bemv$_mailplan b on
+--        a.mmdou_code=b.mplou_code
+--        and substr(a.mmdrep_code,1,4)=b.loc_code
+--        and a.mmdmember_campaign=b.mplcampaign
+--    where a.mmdou_code=Parm_OuCode
+--        and a.mmdclub_code='GC1'
+--        and b.dstspecial_status='0'
+--        and a.mmdmember_date<=Parm_Shipdate
+--        and not exists
+--        (select 1 from as400_mslgcl m
+--         where m.distcode=substr(a.mmdrep_code,1,4)
+--            and m.mslno=to_number(substr(a.mmdrep_code,5,5))
+--            and m.chkdgt=to_number(substr(a.mmdrep_code,10,1)));
+    select
+        substr(a.rep_code,1,4) distcode,
+        to_number(substr(a.rep_code,5,5)) mslno,
+        to_number(substr(a.rep_code,10,1)) chkdgt,
+        nvl(a.member_class,'8') sts,
+        to_numBer(to_char(b.shipdate,'rrrrmmdd')) shipdate,
+        to_numBer(to_char(a.dp_register_date,'rrrrmmdd')) upddate,
+        a.reprep_seq
+    from ms_rep_goldclub a
+    inner join bemv$_mailplan b on
+        a.repou_code=b.mplou_code
+        and substr(a.rep_code,1,4)=b.loc_code
+        and a.register_camp=b.mplcampaign
+        and nvl(b.dstspecial_status,'0')='0'
+    where a.repou_code=Parm_OuCode
+        and a.dp_register='Y'
+        and a.dp_register_date=Parm_Shipdate
+        and not exists
+        (select 1 from as400_mslgcl m
+         where m.rep_seq=a.reprep_seq);
+
+exception when others then
+    begin
+        pkgbw_it.Create_ErrorLog('Update_MSLGCL',SQLCODE ,substr(SQLERRM,1,2000),null);
+    end;
+ pkgbw_it.Create_ErrorLog('Update_MSLGCL'  ,NULL ,'END' ,'End :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+End Update_MSLGCL;
+
+Procedure Update_MSLGCM (Parm_OuCode Varchar2, Parm_Campaign Varchar2) is
+begin
+pkgbw_it.Create_ErrorLog('Update_MSLGCM' ,NULL ,'START' ,'Start :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+    insert into as400_mslgcm
+    select substr(a.bmscampaign,3,4)||substr(a.bmscampaign,1,2) camp,
+        a.bmsloc_code dist,
+        to_number(substr(a.bmsrep_code,5,5)) mslno,
+        to_number(substr(a.bmsrep_code,10,1)) chkdgt,
+        lpad(a.bmsmember_class,1,'0') stotyp,
+        a.bmsnet_sales netsales,
+        a.bmsnet_mistine netmis,
+        a.bmsnet_friday netfri,
+        a.bmsnet_faris netfrn,
+        a.bmsnumber_order nooford,
+        a.bmsdiv,
+        a.bmsnsm,
+        a.bmsloa,
+        b.mmdrep_seq
+    from bw_msl_campaign_sales a
+    inner join db_member_dtl b on
+        a.bmsou_code=b.mmdou_code and a.bmsrep_seq=b.mmdrep_seq and b.mmdclub_code='GC1'
+    inner join db_sales_location c on
+        a.bmsou_code=c.dstou_code and a.bmsloc_code=c.dstloc_code
+        and c.dstsales_group<>'99'
+    where  a.bmsou_code=Parm_OuCode and a.bmscampaign=Parm_Campaign and a.bmsmember_class is not null
+        and not exists
+        (select 1 from as400_mslgcm b
+         where b.camp=to_number(substr(a.bmscampaign,3,4)||substr(a.bmscampaign,1,2)) and b.dist=a.bmsloc_code and
+         b.mslno=to_number(substr(a.bmsrep_code,5,5)) and b.chkdgt=to_number(substr(a.bmsrep_code,10,1)));
+
+exception when others then
+    begin
+        pkgbw_it.Create_ErrorLog('Update_MSLGCM',SQLCODE ,substr(SQLERRM,1,200) ,null);
+    end;
+ pkgbw_it.Create_ErrorLog('Update_MSLGCM'  ,NULL ,'END' ,'End :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+End Update_MSLGCM;
+
+Procedure Update_MSLGCM2 (Parm_OuCode Varchar2, Parm_Campaign Varchar2) is
+begin
+pkgbw_it.Create_ErrorLog('Update_MSLGCM2' ,NULL ,'START' ,'Start :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+    insert into as400_mslgcm2
+    select a.campaign camp,a.nsm,a.loc_code dist,
+        sum(case when c.reprep_status<>'NM' and c.repappt_status not in ('RE','DE') then 1 else 0 end)  actmas
+    from bemv$_mailplan a
+    left outer join db_member_dtl b on
+        a.mplou_code=b.mmdou_code
+        and substr(a.mplcampaign,3,4)||substr(a.mplcampaign,1,2)>=substr(b.mmdmember_campaign,3,4)||substr(b.mmdmember_campaign,1,2)
+        and a.loc_code=substr(b.mmdrep_code,1,4)
+        and b.mmdclub_code='GC1'
+    left outer join ms_representative c on
+        a.mplou_code=c.repou_code
+        and b.mmdrep_seq=c.reprep_seq
+    where a.mplou_code=Parm_OuCode
+        and a.mplcampaign=Parm_Campaign
+        and a.dstspecial_status='0'
+        and not exists
+            (select 1 from as400_mslgcm2 x
+             where x.camp=a.campaign
+                and x.nsm=a.nsm
+                and x.dist=a.loc_code)
+    group by a.campaign,a.nsm,a.loc_code
+    order by camp,nsm,loc_code;
+
+exception when others then
+    begin
+        pkgbw_it.Create_ErrorLog('Update_MSLGCM2',SQLCODE ,substr(SQLERRM,1,200) ,null);
+    end;
+ pkgbw_it.Create_ErrorLog('Update_MSLGCM2'  ,NULL ,'END' ,'End :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+End Update_MSLGCM2;
+
+Procedure Update_MSLGCM3 (Parm_OuCode Varchar2, Parm_Campaign Varchar2) is
+begin
+pkgbw_it.Create_ErrorLog('Update_MSLGCM3' ,NULL ,'START' ,'Start :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+/*    insert into as400_mslgcm3
+    select a.campaign camp,a.nsm,a.loc_code dist,
+        sum(case when c.reprep_status='NM' or c.repappt_status in ('RE','DE')
+            and to_number(pkgbw_it.cy2yc(c.repappt_st_campaign))<to_number(pkgbw_it.cy2yc(pkgdb_desc.getcurrent_campaign))
+        then 1 else 0 end)  remove
+    from bemv$_mailplan a
+    left outer join db_member_dtl b on
+        a.mplou_code=b.mmdou_code
+        and a.mplcampaign>=b.mmdmember_campaign
+        and a.loc_code=substr(b.mmdrep_code,1,4)
+        and b.mmdclub_code='GC1'
+    left outer join ms_representative c on
+        a.mplou_code=c.repou_code
+        and b.mmdrep_seq=c.reprep_seq
+    where a.mplou_code=Parm_OuCode
+        and a.mplcampaign=Parm_Campaign
+        and a.dstspecial_status='0'
+        and not exists
+            (select 1 from as400_mslgcm3 x
+             where x.camp=a.campaign
+                and x.nsm=a.nsm
+                and x.dist=a.loc_code)
+    group by a.campaign,a.nsm,a.loc_code
+    order by camp,nsm,loc_code;
+*/
+    insert into as400_mslgcm3
+    select a.campaign camp,a.nsm,a.loc_code dist,
+        sum(case when c.rettran_campaign = Parm_Campaign then 1 else 0 end) remove
+    from bemv$_mailplan a
+    left outer join db_member_dtl_ex b on
+        a.mplou_code=b.mmdou_code
+        and substr(a.mplcampaign,3,4)||substr(a.mplcampaign,1,2)>=substr(b.mmdmember_campaign,3,4)||substr(b.mmdmember_campaign,1,2)
+        and a.loc_code=substr(b.mmdrep_code,1,4)
+        and b.mmdclub_code='GC1'
+    left outer join ms_transaction c on
+        c.retou_code=b.mmdou_code
+        and c.retrep_seq=b.mmdrep_seq
+        and c.rettran_type in ('RE','DE')
+    where a.mplou_code=Parm_OuCode
+        and a.mplcampaign=Parm_Campaign
+        and a.dstspecial_status='0'
+        and not exists
+            (select 1 from as400_mslgcm3 x
+             where x.camp=a.campaign
+                and x.nsm=a.nsm
+                and x.dist=a.loc_code)
+    group by a.campaign,a.nsm,a.loc_code
+    order by camp,nsm,loc_code;
+exception when others then
+    begin
+        pkgbw_it.Create_ErrorLog('Update_MSLGCM3',SQLCODE ,substr(SQLERRM,1,200) ,null);
+    end;
+ pkgbw_it.Create_ErrorLog('Update_MSLGCM3'  ,NULL ,'END' ,'End :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+End Update_MSLGCM3;
+
+Procedure Update_MSLGCM4 (Parm_OuCode Varchar2, Parm_Campaign Varchar2) is
+begin
+pkgbw_it.Create_ErrorLog('Update_MSLGCM4' ,NULL ,'START' ,'Start :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+    insert into as400_mslgcm4
+    select a.campaign camp,a.nsm,a.loc_code dist,
+        sum(case when c.reprep_status<>'NM' and c.repappt_status not in ('RE','DE')
+            and b.mmdmember_campaign=Parm_Campaign
+        then 1 else 0 end)  newrep
+    from bemv$_mailplan a
+    left outer join db_member_dtl b on
+        a.mplou_code=b.mmdou_code
+        and a.mplcampaign>=b.mmdmember_campaign
+        and a.loc_code=substr(b.mmdrep_code,1,4)
+        and b.mmdclub_code='GC1'
+    left outer join ms_representative c on
+        a.mplou_code=c.repou_code
+        and b.mmdrep_seq=c.reprep_seq
+    where a.mplou_code=Parm_OuCode
+        and a.mplcampaign=Parm_Campaign
+        and a.dstspecial_status='0'
+        and not exists
+            (select 1 from as400_mslgcm4 x
+             where x.camp=a.campaign
+                and x.nsm=a.nsm
+                and x.dist=a.loc_code)
+    group by a.campaign,a.nsm,a.loc_code
+    order by camp,nsm,loc_code;
+
+exception when others then
+    begin
+        pkgbw_it.Create_ErrorLog('Update_MSLGCM4',SQLCODE ,substr(SQLERRM,1,200) ,null);
+    end;
+ pkgbw_it.Create_ErrorLog('Update_MSLGCM4'  ,NULL ,'END' ,'End :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+End Update_MSLGCM4;
+
+Procedure Update_MSLGCM5 (Parm_OuCode Varchar2, Parm_Campaign Varchar2) is
+begin
+pkgbw_it.Create_ErrorLog('Update_MSLGCM' ,NULL ,'START' ,'Start :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+    insert into as400_mslgcm5
+    select
+        substr(a.bmscampaign,3,4)||substr(a.bmscampaign,1,2) camp,
+        a.bmsloc_code dist,
+        to_number(substr(a.bmsrep_code,5,5)) mslno,
+        to_number(substr(a.bmsrep_code,10,1)) chkdgt,
+        lpad(a.bmsmember_class,1,'0') stotyp,
+        a.bmsnet_sales netsales,
+        a.bmsnet_mistine netmis,
+        a.bmsnet_friday netfri,
+        a.bmsnet_faris netfrn,
+        a.bmsnumber_order nooford,
+        a.bmsdiv divcode,
+        a.bmsnsm nsm,
+        'G'||lpad(a.bmsmember_class,1,'0') sts,
+        b.dstregion_code regcode,
+        c.padentry_ldesc regdesc,
+        d.mmdrep_seq
+    from bw_msl_campaign_sales a
+    inner join db_sales_location b on
+        a.bmsou_code=b.dstou_code and a.bmsloc_code=b.dstloc_code
+        and b.dstsales_group<>'99'
+    inner join su_param_dtl c on
+        c.padparam_id=302 and c.padentry_code=b.dstregion_code
+    inner join db_member_dtl d on
+        a.bmsou_code=d.mmdou_code and a.bmsrep_seq=d.mmdrep_seq and d.mmdclub_code='GC1'
+    where  a.bmsou_code=Parm_OuCode and a.bmscampaign=Parm_Campaign and a.bmsmember_class is not null
+        and not exists
+        (select 1 from as400_mslgcm5 b
+         where b.camp=to_number(substr(a.bmscampaign,3,4)||substr(a.bmscampaign,1,2)) and b.dist=a.bmsloc_code and
+            b.mslno=to_number(substr(a.bmsrep_code,5,5)) and b.chkdgt=to_number(substr(a.bmsrep_code,10,1)));
+
+exception when others then
+    begin
+        pkgbw_it.Create_ErrorLog('Update_MSLGCM5',SQLCODE ,substr(SQLERRM,1,200) ,null);
+    end;
+ pkgbw_it.Create_ErrorLog('Update_MSLGCM'  ,NULL ,'END' ,'End :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+End Update_MSLGCM5;
+
+Procedure GCSA_Summary (Parm_OuCode Varchar2, Parm_Campaign  Varchar2) is
+
+ Cursor Rec (Parm_OuCode Varchar2, Parm_Campaign  Varchar2) Is
+    select a.dstloc_code
+    from db_sales_location a
+    where a.dstou_code=Parm_OuCode and a.dstloc_type='S' and a.dstinactive_status='0' and a.dstsales_group<>'99'
+    group by a.dstou_code,a.dstloc_code
+    order by a.dstou_code,a.dstloc_code;
+
+ TxtMsg   VARCHAR2(500);
+ ProcName VARCHAR2(100);
+
+Begin
+  ProcName := 'GCSA_Summary';
+
+--  EXECUTE IMMEDIATE 'TRUNCATE TABLE BW_MSL_GCSA';
+
+  commit;
+
+  pkgbw_it.Create_ErrorLog(ProcName ,NULL ,'START' ,'Start :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+   For Trx In Rec (Parm_OuCode, Parm_Campaign) Loop
+
+        Begin
+                Insert into BW_MSL_GCSA
+                select n.lastcampaign campaign,
+                    g.padentry_ldesc region,d.prvprovince_lname province,e.ampamphur_lname amphur,
+                    case when a.bmsmember_class<>150 then 'G' else 'D' end bmsmember_type,
+                    case when a.bmsmember_class<>150 then 'G'||lpad(a.bmsmember_class,1,'0') else null end bmsmember_class,
+                    b.reploc_code||'-'||lpad(b.reprep_running,5,'00000')||'-'||lpad(b.repcheck_digi,1,'0') repcode,b.reprep_name,
+
+                    sum(distinct case when a.bmscampaign=n.lastcampaign
+                        then a.bmsnet_mistine else 0 end) bmsnet_mistine,
+                    sum(distinct case when a.bmscampaign<=n.lastcampaign
+                        then a.bmsnet_mistine else 0 end) bmsytd_mistine,
+
+                    sum(distinct case when a.bmscampaign=n.lastcampaign
+                        then a.bmsnet_friday else 0 end) bmsnet_friday,
+                    sum(distinct case when a.bmscampaign<n.lastcampaign
+                        then a.bmsnet_friday else 0 end) bmsytd_friday,
+
+                    sum(distinct case when a.bmscampaign=n.lastcampaign
+                        then a.bmsnet_faris else 0 end) bmsnet_faris,
+                    sum(distinct case when a.bmscampaign<=n.lastcampaign
+                        then a.bmsnet_faris else 0 end) bmsytd_faris,
+                    'GCSARP'
+
+                from bw_msl_campaign_sales a
+                inner join ms_representative b on
+                    a.bmsou_code=b.repou_code and a.bmsrep_seq=b.reprep_seq
+                inner join ms_rep_address c on
+                    a.bmsou_code=c.reaou_code and a.bmsrep_seq=c.rearep_seq and c.reatype='1' and c.reano='1'
+                inner join db_province d on
+                    a.bmsou_code=d.prvou_code and c.reaprovince_code=d.prvprovince_code
+                inner join db_amphur e on
+                    a.bmsou_code=e.ampou_code and c.reaamphur_code=e.ampamphur_code
+                inner join db_province_region f on
+                    c.reaprovince_code=f.prvprovince_code
+                inner join su_param_dtl g on
+                    f.dstregion_code=g.padentry_code and g.padparam_id=302
+                inner join (select case when Parm_Campaign is null or Parm_Campaign='null' then pkgdb_desc.getprev_campaign('000',pkgdb_desc.getCurrent_Campaign,1) else Parm_Campaign end lastcampaign from dual) n on
+                    a.bmscampaign between '0120'||a.bmsyear and n.lastcampaign
+
+                where a.bmsou_code=Parm_OuCode and a.bmsloc_code=Trx.dstloc_code
+                    and (a.bmsmember_class between 1 and 8 or a.bmsmember_class=150)
+                    and not exists
+                    (select 1 from bw_msl_gcsa x
+                     where x.campaign=n.lastcampaign and x.region=g.padentry_ldesc and x.province=d.prvprovince_lname
+                        and x.amphur=e.ampamphur_lname and x.member_type=case when a.bmsmember_class<>150 then 'G' else 'D' end
+                        and x.member_class=case when a.bmsmember_class<>150 then 'G'||lpad(a.bmsmember_class,1,'0') else null end
+                        and x.rep_code=b.reploc_code||'-'||lpad(b.reprep_running,5,'00000')||'-'||lpad(b.repcheck_digi,1,'0')
+                        and x.progid='GCSARP')
+                group by g.padentry_ldesc,d.prvprovince_lname,e.ampamphur_lname,case when a.bmsmember_class<>150 then 'G'
+                    else 'D' end,case when a.bmsmember_class<>150 then 'G'||lpad(a.bmsmember_class,1,'0') else null end,
+                    b.reploc_code||'-'||lpad(b.reprep_running,5,'00000')||'-'||lpad(b.repcheck_digi,1,'0'),b.reprep_name;
+
+                commit;
+
+               Exception When Others Then
+                    Begin
+                        TxtMsg   := 'Ins: BW_MSL_GCSA (campaign,region,province)..'||Trx.dstloc_code;
+                        pkgbw_it.Create_ErrorLog(ProcName,SQLCODE ,substr(SQLERRM,1,200) ,TxtMsg);
+                    End;
+        End;
+    End Loop;
+ Commit;
+ pkgbw_it.Create_ErrorLog(ProcName  ,NULL ,'END' ,'End :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+End GCSA_Summary;
+
+Procedure  MainProcess (Parm_OuCode Varchar2) is
+
+ -- StartDate DATE;
+ -- EndDate DATE;
+ ShipDate DATE;
+ Campaign Varchar2(6);
+ Start_ShipDate DATE;
+ ENd_ShipDate DATE;
+
+Begin
+  pkgbw_it.Create_ErrorLog('Main'  ,NULL ,'START' ,'Start :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+        -- Start / End date from Last Campaign
+        -- StartDate:=pkgsu_report.fncfinddate_byship('000',pkgdb_desc.getCampaign_Sdate('000',pkgdb_desc.getprev_campaign('000',pkgdb_desc.getCurrent_Campaign,1)),1);
+        -- EndDate:=pkgsu_report.fncfinddate_byship('000',pkgdb_desc.getCampaign_Edate('000',pkgdb_desc.getprev_campaign('000',pkgdb_desc.getCurrent_Campaign,1)),1);
+        -- Last Ship Date
+
+        Campaign:=pkgdb_desc.getprev_campaign('000',pkgdb_desc.getCurrent_Campaign,1);
+        ShipDate:=pkgsu_report.fncfinddate_byship('000',pkgdb_desc.getCurrent_camp_date,-1);
+        Start_ShipDate:=pkgdb_desc.getcampaign_sdate('000',Campaign)+1;
+        End_ShipDate:=pkgdb_desc.getcampaign_edate('000',Campaign)+1;
+/*
+        Campaign:=pkgdb_desc.getprev_campaign('000','022014',1);
+        Start_ShipDate:=pkgdb_desc.getcampaign_sdate('000',pkgdb_desc.getprev_campaign('000','022014',1))+1;
+        End_ShipDate:=pkgdb_desc.getcampaign_edate('000',pkgdb_desc.getprev_campaign('000','022014',1))+1;
+        ShipDate:=pkgsu_report.fncfinddate_byship('000',pkgdb_desc.getcampaign_edate('000',pkgdb_desc.getprev_campaign('000','022014',1)),3);
+*/
+        Member_GC_Count(Parm_OuCode,Campaign);
+        Update_MSLGCM(Parm_OuCode,Campaign);
+        Update_MSLGCM2(Parm_OuCode,Campaign);
+        Update_MSLGCM3(Parm_OuCode,Campaign);
+        Update_MSLGCM4(Parm_OuCode,Campaign);
+        Update_MSLGCM5(Parm_OuCode,Campaign);
+        GCSA_Summary(Parm_OuCode,null);
+        Return_By_Reason_Summary(Parm_OuCode,Start_ShipDate,End_ShipDate,'00000','99999');
+        Commit;
+
+ pkgbw_it.Create_ErrorLog('Main'  ,NULL ,'END' ,'End :'||to_char(sysdate,'dd/mm/rrrr hh24:mi:ss') ) ;
+
+End MainProcess;
+
+END;
+/

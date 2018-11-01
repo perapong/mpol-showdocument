@@ -1,0 +1,1404 @@
+CREATE OR REPLACE PACKAGE PKGBW_Update_BPR2 AS
+
+  Procedure Update_Point_Montly  (     pi_ou_code    in  om_bal_campest.dslou_code%type,
+                                                       pi_work_date  in varchar2,
+                                                       pi_type           in varchar2 default 'MTD',
+                                                       pi_user_id       in  om_bal_campest.dslcre_by%type,
+                                                       pi_prog_id       in  om_bal_campest.dslprog_id%type,
+                                                       pi_jobno          in   su_jobs_regis.jbrjob_no%type,
+                                                       po_process_status out number,
+                                                       po_error_message  out varchar2);                                                       
+ 
+  Procedure Update_Point_Campaignly  (     pi_ou_code    in  om_bal_campest.dslou_code%type,
+                                                       pi_work_date  in varchar2,
+                                                       pi_type           in varchar2 default 'CTD',
+                                                       pi_user_id       in  om_bal_campest.dslcre_by%type,
+                                                       pi_prog_id       in  om_bal_campest.dslprog_id%type,
+                                                       pi_jobno          in   su_jobs_regis.jbrjob_no%type,
+                                                       po_process_status out number,
+                                                       po_error_message  out varchar2);    
+                                                                                                          
+  Procedure Prepare_Rep_byDate  (p_ou_code    in  om_bal_campest.dslou_code%type,
+                                                      p_start_date in varchar2,
+                                                      p_end_date  in varchar2,
+                                                      p_volumn    db_bpr_reward_hdr.brwvolumn_no%type,
+                                                      p_disttype  db_bpr_reward_hdr.brwdistype_status%type,
+                                                      p_reptype   db_bpr_reward_hdr.brwreptype_status%type);
+
+END PKGBW_Update_BPR2;
+/
+CREATE OR REPLACE PACKAGE BODY PKGBW_Update_BPR2 AS
+ s_date date;
+ e_date date;
+
+ s_working_date date := pkgdb_desc.getcurrent_camp_date;
+
+ v_cnt_success  number := 0;
+ v_cnt_error      number := 0;
+
+
+  Procedure Update_Point_Montly  (        pi_ou_code    in  om_bal_campest.dslou_code%type,
+                                                           pi_work_date  in varchar2,
+                                                           pi_type           in varchar2 default 'MTD',
+                                                           pi_user_id       in  om_bal_campest.dslcre_by%type,
+                                                           pi_prog_id       in  om_bal_campest.dslprog_id%type,
+                                                           pi_jobno          in   su_jobs_regis.jbrjob_no%type,
+                                                           po_process_status out number,
+                                                           po_error_message  out varchar2) is
+  cursor tmplte is
+            select t.*
+            from
+            (
+                select sclcode, brwvolumn_no,
+                           nvl(brwdistype_status, '0')  brwdistype_status,
+                           nvl(brwreptype_status, '0') brwreptype_status
+                   from sa_criteria_lvl_hdr, db_bpr_reward_hdr
+                where  sclou_code    = pi_ou_code
+                    and  sclprogref_id = pi_prog_id
+                    and  nvl(sclinactive_status, '0') = '0'
+                    and  sclou_code    = brwou_code
+                    and  sclattribute1  = brwvolumn_no
+                    and pkgbw_it.cy2yc(pkgdb_desc.getcampaign_bydate('000',to_date(pi_work_date,'dd/mm/rrrr')))
+                        between pkgbw_it.cy2yc(brweff_scampaign) and pkgbw_it.cy2yc(brweff_ecampaign)
+                order by brweff_scampaign desc
+            ) t
+            where rownum=1;
+
+     cursor  pnt_mntly (   pi_start_date date,
+                                   pi_template sa_criteria_lvl_hdr.sclcode%type,
+                                   pi_volumn   db_bpr_reward_hdr.brwvolumn_no%type,
+                                   pi_disttype   db_bpr_reward_hdr.brwdistype_status%type,
+                                   pi_reptype   db_bpr_reward_hdr.brwreptype_status%type) is
+
+            select --floor(rownum/(select count(*) from su_param_dtl a where a.padparam_id=97 and  nvl(a.padflag1,'0')='0')-0.000000001) brdreward_level,t.*
+                   rownum-1 brdreward_level,t.*
+            from
+            (
+               select    scdou_code oucode, scdcode, nvl(brd.brdvolumn_no,pi_volumn) volumn_no,
+                           nvl(brd.brdreward_level,0) rwd_level, scdcriteria_snumber snum, scdcriteria_enumber enum,nvl(brd.brdredeem_money,0) redeem_money,padentry_code dstgrp,
+                           sum( case when add_tmppnt_mis between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_tmppnt_mis end) add_tmppnt_mis,
+                           count( distinct case when add_tmppnt_mis between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq end) add_tmpmsl_mis,
+                           sum( case when add_tmppnt_fri   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_tmppnt_fri   end) add_tmppnt_fri,
+                           count( distinct case when add_tmppnt_fri   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq  end) add_tmpmsl_fri,
+                           sum( case when add_tmppnt_far  between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_tmppnt_far  end) add_tmppnt_far,
+                           count( distinct case when add_tmppnt_far  between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq  end) add_tmpmsl_far,
+                           sum( case when add_tmppnt_oth between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_tmppnt_oth  end) add_tmppnt_oth,
+                           count( distinct case when add_tmppnt_oth between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq  end) add_tmpmsl_oth,
+                           ---- ********* -----
+                           sum( case when add_tmppnt_ttl between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_tmppnt_ttl  end) add_tmppnt_ttl,
+                           count( distinct case when add_tmppnt_ttl between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq  end) add_tmpmsl_ttl,
+                           ---- ********* -----
+                           sum( case when add_actpnt_mis  between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_actpnt_mis  end) add_actpnt_mis,
+                           count( distinct case when add_actpnt_mis  between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq  end) add_actmsl_mis,
+                           sum( case when add_actpnt_fri    between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_actpnt_fri    end) add_actpnt_fri,
+                           count( distinct case when add_actpnt_fri    between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq  end) add_actmsl_fri,
+                           sum( case when add_actpnt_far   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_actpnt_far   end) add_actpnt_far,
+                           count( distinct case when add_actpnt_far   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq  end) add_actmsl_far,
+                           sum( case when add_actpnt_oth   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_actpnt_oth  end) add_actpnt_oth,
+                           count( distinct case when add_actpnt_oth   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq end) add_actmsl_oth,
+                           ---- ********* -----
+                           sum( case when add_actpnt_ttl   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_actpnt_ttl  end) add_actpnt_ttl,
+                           count( distinct case when add_actpnt_ttl   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq end) add_actmsl_ttl,
+                           ---- ********* -----
+                           sum( case when pnt.brdredeem_point=brd.brdredeem_point and pnt.brdredeem_money = brd.brdredeem_money and brd.brdredeem_point   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then redeem_actpnt  end) redeem_actpnt,
+                           count( distinct case when pnt.brdredeem_point=brd.brdredeem_point and pnt.brdredeem_money = brd.brdredeem_money and brd.brdredeem_point   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq end) redeem_actmsl,
+                           sum( case when remove_actpnt   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then remove_actpnt  end) remove_actpnt,
+                           count( distinct case when remove_actpnt   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq end) remove_actmsl,
+                           sum( case when expired_actpnt   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then expired_actpnt  end) expired_actpnt,
+                           count( distinct case when expired_actpnt   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq end) expired_actmsl
+                   from sa_criteria_lvl_dtl scd, sa_criteria_lvl_hdr scl, db_bpr_reward_dtl brd,
+                    (
+                            select   /* +parallel (rep, 16)*/
+                                      oucode, dstsales_group, asofdate, repseq, brdredeem_point, brdredeem_money, brdvolumn_no volumn_no,
+                                      add_tmppnt_mis, add_tmpmsl_mis, add_tmppnt_fri, add_tmpmsl_fri, add_tmppnt_far, add_tmpmsl_far, add_tmppnt_oth, add_tmpmsl_oth, add_tmppnt_ttl, add_tmpmsl_ttl,
+                                      add_actpnt_mis, add_actmsl_mis, add_actpnt_fri, add_actmsl_fri, add_actpnt_far, add_actmsl_far, add_actpnt_oth, add_actmsl_oth, add_actpnt_ttl, add_actmsl_ttl,
+                                      redeem_actpnt, redeem_actmsl, remove_actpnt, remove_actmsl, expired_actpnt, expired_actmsl
+                             from sa_point_mntly_byrep_ys rep
+                            where rep.oucode            = pi_ou_code
+                              and rep.asofdate          = to_date(pi_work_date, 'dd/mm/rrrr')
+                     ) pnt, su_param_dtl dsg
+                where  scd.scdou_code            =  pi_ou_code
+                   and  scd.scdprogref_id        =  pi_prog_id
+                   and  scd.scdcode              =  pi_template
+                   and  scd.scdou_code           =  scl.sclou_code
+                   and  scd.scdprogref_id        =  scl.sclprogref_id
+                   and  scl.sclcode              =  scd.scdcode
+                   and  scd.scdou_code           =  brd.brdou_code(+)
+                   and  pi_volumn                =  brd.brdvolumn_no(+)
+                   and  scd.scdcriteria_snumber  =  brd.brdredeem_point(+)
+                   and  dsg.padparam_id          =  97
+                   and  dsg.padentry_code        =  11
+                   and  nvl(dsg.padflag1, '0')   =  '0'
+                   and  dsg.padentry_code        =  dstsales_group(+)
+              group by scdou_code, scdcode, brd.brdreward_level, brdvolumn_no, scdcriteria_snumber, scdcriteria_enumber, padentry_code,brd.brdredeem_money
+              order by  scdcriteria_snumber, brd.brdreward_level, brd.brdredeem_money, padentry_code
+            ) t
+            order by  brdreward_level, snum, redeem_money, dstgrp;
+
+  p_camp db_campaign.cpgcampaign_code%type;
+
+  p_bal_point number;
+  p_bal_msl   number;
+
+  p_adj_point number;
+  p_adj_msl   number;
+
+  v_pk varchar2(100);
+  p_start_date date;
+  v_tmp varchar2(1);
+
+  s_date    date;
+  e_date    date;
+
+        procedure prepare_repdetail (  v_ou_code    in  om_bal_campest.dslou_code%type,
+                                                      v_start_date in varchar2,
+                                                      v_end_date  in varchar2,
+                                                      v_volumn   db_bpr_reward_hdr.brwvolumn_no%type,
+                                                      v_disttype   db_bpr_reward_hdr.brwdistype_status%type,
+                                                      v_reptype   db_bpr_reward_hdr.brwreptype_status%type) is
+        Begin
+              Begin
+                EXECUTE IMMEDIATE 'truncate table sa_point_mntly_byrep_ys';
+                EXECUTE IMMEDIATE 'truncate table sa_point_mntly_tmp_ys';
+
+              /*
+                delete sa_point_mntly_byrep_ys purge;
+                commit;
+                delete sa_point_mntly_tmp_ys purge;
+                commit;
+              */
+              End;
+              Begin
+                   insert into /*+append*/sa_point_mntly_byrep_ys
+                              (oucode, dstsales_group, asofdate, repseq, brdredeem_point,
+                               add_tmppnt_mis, add_tmpmsl_mis, add_tmppnt_fri, add_tmpmsl_fri, add_tmppnt_far, add_tmpmsl_far, add_tmppnt_oth, add_tmpmsl_oth, add_tmppnt_ttl, add_tmpmsl_ttl,
+                               add_actpnt_mis, add_actmsl_mis, add_actpnt_fri, add_actmsl_fri, add_actpnt_far, add_actmsl_far, add_actpnt_oth, add_actmsl_oth, add_actpnt_ttl, add_actmsl_ttl,
+                               redeem_actpnt, redeem_actmsl, remove_actpnt, remove_actmsl, expired_actpnt, expired_actmsl, brdredeem_money, brdvolumn_no)
+                   select   oucode, dstsales_group, trunc(to_date(v_end_date, 'dd/mm/yyyy')) asofdate,
+                               repseq, brdredeem_point,
+                               sum (add_tmppnt_mis) add_tmppnt_mis,
+                               sum (add_tmpmsl_mis) add_tmpmsl_mis,
+                               sum (add_tmppnt_fri) add_tmppnt_fri,
+                               sum (add_tmpmsl_fri) add_tmpmsl_fri,
+                               sum (add_tmppnt_far) add_tmppnt_far,
+                               sum (add_tmpmsl_far) add_tmpmsl_far,
+                               sum (add_tmppnt_oth) add_tmppnt_oth,
+                               sum (add_tmpmsl_oth) add_tmpmsl_oth,
+                               sum (add_tmppnt_ttl) add_tmppnt_ttl,
+                               sum (add_tmpmsl_ttl) add_tmpmsl_ttl,
+                               sum (add_actpnt_mis) add_actpnt_mis,
+                               sum (add_actmsl_mis) add_actmsl_mis,
+                               sum (add_actpnt_fri) add_actpnt_fri,
+                               sum (add_actmsl_fri) add_actmsl_fri,
+                               sum (add_actpnt_far) add_actpnt_far,
+                               sum (add_actmsl_far) add_actmsl_far,
+                               sum (add_actpnt_oth) add_actpnt_oth,
+                               sum (add_actmsl_oth) add_actmsl_oth,
+                               sum (add_actpnt_ttl) add_actpnt_ttl,
+                               sum (add_actmsl_ttl) add_actmsl_ttl,
+                               sum (redeem_actpnt) redeem_actpnt,
+                               sum (redeem_actmsl) redeem_actmsl,
+                               sum (remove_actpnt) remove_actpnt,
+                               sum (remove_actmsl) remove_actmsl,
+                               sum (expired_actpnt) expired_actpnt,
+                               sum (expired_actmsl) expired_actmsl,
+                               brdredeem_money,
+                               brdvolumn_no
+              from (
+                             select  /* +parallel (opt, 16)*/
+                             optou_code oucode, nvl(brdvolumn_no,v_volumn) brdvolumn_no, 11 dstsales_group, optupd_rep_code repseq, opttrans_date pntdate,
+                             optrefer_bill_code, nvl(brdredeem_point,0) brdredeem_point, nvl(brdredeem_money,0) brdredeem_money,
+                             sum( case when optpnt_type in ('V', 'I', 'O') and optbrand_code = '1' then nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0) end) add_tmppnt_mis,
+                             count( distinct case when optpnt_type in ('V', 'I', 'O') and optbrand_code = '1' and (nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0)) > 0 then optupd_rep_code end) add_tmpmsl_mis,
+                             sum( case when optpnt_type in ('V', 'I', 'O') and optbrand_code = '2' then nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0) end) add_tmppnt_fri,
+                             count( distinct case when optpnt_type in ('V', 'I', 'O') and optbrand_code = '2' and (nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0)) > 0 then optupd_rep_code end) add_tmpmsl_fri,
+                             sum( case when optpnt_type in ('V', 'I', 'O') and optbrand_code = '3' then nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0) end) add_tmppnt_far,
+                             count( distinct case when optpnt_type in ('V', 'I', 'O') and optbrand_code = '3' and (nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0)) > 0 then optupd_rep_code end) add_tmpmsl_far,
+                             sum( case when optpnt_type in ('V', 'I', 'O') and optbrand_code not in ('1', '2', '3') then nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0) end) add_tmppnt_oth,
+                             count( distinct case when optpnt_type in ('V', 'I', 'O') and optbrand_code not in ('1', '2', '3') and (nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0)) > 0 then optupd_rep_code end) add_tmpmsl_oth,
+                             ----------
+                             sum( case when optpnt_type in ('V', 'I', 'O')  then nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0) end) add_tmppnt_ttl,
+                             count( distinct case when optpnt_type in ('V', 'I', 'O') and (nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0)) > 0 then optupd_rep_code end) add_tmpmsl_ttl,
+                             -----------
+                             sum( case when optpnt_type in ('P', 'I', 'O')  and optbrand_code = '1' and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0 then nvl(optact_point_in, 0) - nvl(optact_point_out, 0) end) add_actpnt_mis,
+                             count( distinct case when optpnt_type in ('P', 'I', 'O')  and optbrand_code = '1' and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0  then optupd_rep_code end) add_actmsl_mis,
+                             sum( case when optpnt_type in ('P', 'I', 'O')  and optbrand_code = '2' and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0 then nvl(optact_point_in, 0) - nvl(optact_point_out, 0) end) add_actpnt_fri,
+                             count( distinct case when optpnt_type in ('P', 'I', 'O')  and optbrand_code = '2' and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0  then optupd_rep_code end) add_actmsl_fri,
+                             sum( case when optpnt_type in ('P', 'I', 'O')  and optbrand_code = '3' and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0 then nvl(optact_point_in, 0) - nvl(optact_point_out, 0) end) add_actpnt_far,
+                             count( distinct case when optpnt_type in ('P', 'I', 'O')  and optbrand_code = '3' and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0  then optupd_rep_code end) add_actmsl_far,
+                             sum( case when optpnt_type in ('P', 'I', 'O')  and optbrand_code not in ('1', '2', '3') and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0  then nvl(optact_point_in, 0) - nvl(optact_point_out, 0) end) add_actpnt_oth,
+                             count( distinct case when optpnt_type in ('P', 'I', 'O')  and optbrand_code not in ('1', '2', '3') and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0  then optupd_rep_code end) add_actmsl_oth,
+                             --------
+                             sum( case when optpnt_type in ('P', 'I', 'O')  and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0 then nvl(optact_point_in, 0) - nvl(optact_point_out, 0) end) add_actpnt_ttl,
+                             count( distinct case when optpnt_type in ('P', 'I', 'O')  and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0  then optupd_rep_code end) add_actmsl_ttl,
+                             --------
+                             sum( case when optpnt_type = 'R' and optrefer_bill_code is not null and (nvl(optact_point_out, 0) - nvl(optact_point_in, 0)) > 0 then nvl(optact_point_out, 0) - nvl(optact_point_in, 0) end) -
+                             nvl(sum( case when optpnt_type = 'C' and optrefer_bill_code is not null and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0 then nvl(optact_point_in, 0) - nvl(optact_point_out, 0) end),0) redeem_actpnt,
+                             count( distinct case when optpnt_type = 'R' and (nvl(optact_point_out, 0) - nvl(optact_point_in, 0)) > 0  then optupd_rep_code end) redeem_actmsl,
+                             sum( case when optpnt_type = 'M' and (nvl(optact_point_out, 0) - nvl(optact_point_in, 0)) > 0 then nvl(optact_point_out, 0) - nvl(optact_point_in, 0) end) remove_actpnt,
+                             count( distinct case when optpnt_type = 'M' and (nvl(optact_point_out, 0) - nvl(optact_point_in, 0)) > 0  then optupd_rep_code end) remove_actmsl,
+                             sum( case when  optpnt_type = 'E' and (nvl(optact_point_out, 0) - nvl(optact_point_in, 0)) > 0 then nvl(optact_point_out, 0) - nvl(optact_point_in, 0) end) expired_actpnt,
+                             count( distinct case when optpnt_type = 'E' and (nvl(optact_point_out, 0) - nvl(optact_point_in, 0)) > 0  then optupd_rep_code end) expired_actmsl
+                     from om_transaction_pnt opt,
+                                           (select brtou_code, brdvolumn_no, brtbill_code,
+                                                      max (brdredeem_point) brdredeem_point,
+                                                      max (brdredeem_money) brdredeem_money
+                                              from db_bpr_reward_dtl, db_bpr_reward_itm
+                                            where brdou_code      = v_ou_code
+                                                and brdvolumn_no  = v_volumn
+                                                and brdou_code      = brtou_code
+                                                and brdvolumn_no  = brtvolumn_no
+                                                and brdline_seq      = brtline_seq
+                                          group by brtou_code, brdvolumn_no, brtbill_code) itm
+                   where optou_code              = v_ou_code
+                      and optpoint_prog_type   = 'B'
+                      and trunc(opttrans_date) >= trunc(to_date(v_start_date, 'dd/mm/yyyy'))
+                      and trunc(opttrans_date) <= trunc(to_date(v_end_date, 'dd/mm/yyyy'))
+                      --and optou_code            = dst.dstou_code
+                      --and substr(optupd_rep_code, 1, 4) = dst.dstloc_code
+                      and optou_code            = itm.brtou_code(+)
+                      and optrefer_bill_code   = itm.brtbill_code(+)
+                      and optrefer_redeem_price = itm.brdredeem_money(+)
+                     group by optou_code , nvl(brdvolumn_no,v_volumn), optupd_rep_code, opttrans_date, optrefer_bill_code, nvl(brdredeem_point,0), nvl(brdredeem_money,0)
+                     )
+                    group by oucode, brdvolumn_no, dstsales_group, repseq, brdredeem_point, brdredeem_money;
+
+                    commit;
+
+              Exception when others Then null;
+              End;
+              --- create temporary max point lineseq for monthend process
+              Begin
+                     insert into /*+append*/sa_point_mntly_tmp_ys
+                             (optou_code, optrep_seq, pntmax, adjust_actpt)
+                     select /* +parallel (pnt2, 16)*/
+                              pnt2.optou_code, pnt2.optrep_seq, --optupd_rep_code,
+                              max(pnt2.optline_seq) pntmax,
+                              sum( case when trunc(pnt2.opttrans_date)    >= trunc(to_date(v_start_date, 'dd/mm/yyyy'))
+                                                  and trunc(pnt2.opttrans_date)  <= trunc(to_date(v_end_date, 'dd/mm/yyyy'))
+                                                  and pnt2.optpnt_type = 'A' and (nvl(pnt2.optact_point_in, 0) - nvl(pnt2.optact_point_out, 0)) <> 0 then nvl(pnt2.optact_point_in, 0) - nvl(pnt2.optact_point_out, 0) end) adjust_actpt
+                     from  om_transaction_pnt pnt2
+                   where pnt2.optou_code                = v_ou_code
+                       and pnt2.optpoint_prog_type     = 'B'
+                       and trunc(pnt2.opttrans_date)  <= trunc(to_date(v_end_date, 'dd/mm/yyyy'))
+                    group by optou_code, optrep_seq;
+
+                    commit;
+
+              End;
+        End prepare_repdetail ;
+
+  Begin
+       s_date  := sysdate;
+
+       If     nvl(pi_type, 'MTD') = 'MTD' Then
+              --p_start_date    := to_date('01/'||to_char(to_date(pi_work_date, 'dd/mm/yyyy'), 'MM/YYYY'), 'DD/MM/YYYY');
+              p_start_date    := to_date('01/02/2014', 'DD/MM/YYYY');
+       ElsIf nvl(pi_type, 'MTD') = 'YTD' Then
+              --p_start_date    := to_date('01/01/'||to_char(to_date(pi_work_date, 'dd/mm/yyyy'), 'YYYY'), 'DD/MM/YYYY');
+              p_start_date    := to_date('01/01/2014', 'DD/MM/YYYY');
+       End If;
+
+       p_camp           := pkgdb_desc.getcampaign_bydate(pi_ou_code, to_date(pi_work_date, 'dd/mm/yyyy'));
+
+       If     nvl(pi_type, 'MTD') = 'MTD' Then
+        for rwd in tmplte Loop
+                -- dbms_output.put_line(rwd.sclcode);
+                Begin
+                    delete sa_point_mntly_ys
+                    where spsou_code     = pi_ou_code
+                        and spsprogref      = pi_prog_id
+                        and spscode          = rwd.sclcode
+                        and spsofmonth     = to_char(to_date(pi_work_date, 'dd/mm/yyyy'), 'MMYYYY')
+                        and spslastdate      >= to_date(pi_work_date, 'dd/mm/yyyy');
+                Exception when no_data_found Then null;
+                End;
+
+                Begin
+                    prepare_repdetail (pi_ou_code,
+                                                to_char(p_start_date, 'dd/mm/yyyy'),
+                                                pi_work_date,
+                                                rwd.brwvolumn_no,
+                                                rwd.brwdistype_status,
+                                                rwd.brwreptype_status);
+                End;
+
+                --For dst in dist Loop
+                        for x in pnt_mntly (p_start_date, /*dst.dstloc_code, dst.dstgrp, dst.dstdistrict_type, */rwd.sclcode, rwd.brwvolumn_no, rwd.brwdistype_status, rwd.brwreptype_status) Loop
+
+                              v_pk := substr(x.scdcode||'|'||x.brdreward_level||'|'||to_date(pi_work_date, 'dd/mm/yyyy')||'|'||p_camp||'|'||x.dstgrp, 1, 100);
+
+                              p_bal_msl     := 0;
+                              p_bal_point  := 0;
+                              p_adj_msl     := 0;
+                              p_adj_point  := 0;
+
+                            Begin
+                              Insert into sa_point_mntly_ys
+                                        (  spsou_code, spsprogref, spscode, spsseqlevel, spsofmonth, spslastdate, spscampaign,
+                                           spsdstgroup, spsaddtmp_pntmis, spsaddtmp_pntfri, spsaddtmp_pntfar, spsaddtmp_pntoth, spsaddtmp_pntttl,
+                                           spsaddtmp_mslmis, spsaddtmp_mslfri, spsaddtmp_mslfar, spsaddtmp_msloth,  spsaddtmp_mslttl,
+                                           spsaddact_pntmis, spsaddact_pntfri, spsaddact_pntfar,  spsaddact_pntoth,
+                                           spsaddact_pntttl,
+                                           spsaddact_mslmis, spsaddact_mslfri, spsaddact_mslfar, spsaddact_msloth,
+                                           spsaddact_mslttl,
+                                           spsusage_pnt, spsusage_msl,
+                                           spsremove_pnt, spsremove_msl,
+                                           --spsadjust_pnt, spsadjust_msl,
+                                           spsexpired_pnt, spsexpired_msl,
+                                           spscre_by, spscre_date, spsprog_id, spsupd_by, spsupd_date, spsredeem_money, spsvolumn_no)
+                              Values ( x.oucode, pi_prog_id, x.scdcode, x.brdreward_level, to_char(to_date(pi_work_date, 'dd/mm/yyyy'), 'MMYYYY'), to_date(pi_work_date, 'dd/mm/yyyy'),  p_camp,
+                                           x.dstgrp,  x.add_tmppnt_mis, x.add_tmppnt_fri, x.add_tmppnt_far, x.add_tmppnt_oth,  x.add_tmppnt_ttl,
+                                               x.add_tmpmsl_mis, x.add_tmpmsl_fri,
+                                               x.add_tmpmsl_far,  x.add_tmpmsl_oth, x.add_tmpmsl_ttl,
+                                               x.add_actpnt_mis,   x.add_actpnt_fri,  x.add_actpnt_far,     x.add_actpnt_oth,
+                                               nvl(x.add_actpnt_mis, 0) + nvl( x.add_actpnt_fri,0) + nvl( x.add_actpnt_far,0) + nvl( x.add_actpnt_oth,0),
+                                               x.add_actmsl_mis,  x.add_actmsl_fri, x.add_actmsl_far,  x.add_actmsl_oth,
+                                               nvl(x.add_actmsl_mis, 0) + nvl(x.add_actmsl_fri,0) + nvl( x.add_actmsl_far,0) + nvl( x.add_actmsl_oth,0),
+                                               x.redeem_actpnt,   x.redeem_actmsl,
+                                               x.remove_actpnt,   x.remove_actmsl,
+                                               --x.adjust_actpnt,     x.adjust_actmsl,
+                                               x.expired_actpnt,   x.expired_actmsl,
+                                               pi_user_id, sysdate, pi_prog_id, pi_user_id, sysdate, x.redeem_money,x.volumn_no) ;
+                            Exception when dup_val_on_index then
+                                          Begin
+                                           update sa_point_mntly_ys
+                                                set spsaddtmp_pntmis = nvl(spsaddtmp_pntmis,0) + nvl(x.add_tmppnt_mis,0),
+                                                      spsaddtmp_pntfri   =  nvl(spsaddtmp_pntfri,0) + nvl(x.add_tmppnt_fri,0),
+                                                      spsaddtmp_pntfar  =  nvl(spsaddtmp_pntfar,0) + nvl(x.add_tmppnt_far,0),
+                                                      spsaddtmp_pntoth =  nvl(spsaddtmp_pntoth,0) + nvl(x.add_tmppnt_oth,0),
+                                                      spsaddtmp_pntttl   =  nvl(spsaddtmp_pntttl,0) + nvl(x.add_tmppnt_ttl,0),
+                                                      spsaddtmp_mslmis = nvl(spsaddtmp_mslmis,0) + nvl(x.add_tmpmsl_mis,0),
+                                                      spsaddtmp_mslfri   = nvl(spsaddtmp_mslfri,0) + nvl(x.add_tmpmsl_fri,0),
+                                                      spsaddtmp_mslfar  = nvl(spsaddtmp_mslfar,0) + nvl(x.add_tmpmsl_far,0),
+                                                      spsaddtmp_msloth  = nvl(spsaddtmp_msloth,0) + nvl(x.add_tmpmsl_oth,0),
+                                                      spsaddtmp_mslttl  = nvl(spsaddtmp_mslttl,0) + nvl(x.add_tmpmsl_ttl,0),
+                                                      spsaddact_pntmis   = nvl(spsaddact_pntmis,0) + nvl(x.add_actpnt_mis,0),
+                                                      spsaddact_pntfri     = nvl(spsaddact_pntfri,0) + nvl(x.add_actpnt_fri,0),
+                                                      spsaddact_pntfar    = nvl(spsaddact_pntfar,0) + nvl(x.add_actpnt_far,0),
+                                                      spsaddact_pntoth   = nvl(spsaddact_pntoth,0) + nvl(x.add_actpnt_oth,0),
+                                                      spsaddact_pntttl     = nvl(spsaddact_pntttl,0) +
+                                                                                             ( nvl(x.add_actpnt_mis, 0) + nvl( x.add_actpnt_fri,0) + nvl( x.add_actpnt_far,0) + nvl( x.add_actpnt_oth,0)),
+                                                      spsaddact_mslmis  = nvl(spsaddact_mslmis,0) + nvl(x.add_actmsl_mis,0),
+                                                      spsaddact_mslfri    =  nvl(spsaddact_mslfri,0) + nvl(x.add_actmsl_fri,0),
+                                                      spsaddact_mslfar   =  nvl(spsaddact_mslfar,0) + nvl(x.add_actmsl_far,0),
+                                                      spsaddact_msloth   = nvl(spsaddact_msloth,0) + nvl(x.add_actmsl_oth,0),
+                                                      spsaddact_mslttl     = nvl(spsaddact_mslttl,0) +
+                                                                                             ( nvl(x.add_actmsl_mis, 0) + nvl(x.add_actmsl_fri,0) + nvl( x.add_actmsl_far,0) + nvl( x.add_actmsl_oth,0)),
+                                                      spsusage_pnt         = nvl(spsusage_pnt,0) + nvl(x.redeem_actpnt,0),
+                                                      spsusage_msl         =   nvl(spsusage_msl,0) + nvl(x.redeem_actmsl,0),
+                                                      spsremove_pnt       =    nvl(spsremove_pnt,0) + nvl(x.remove_actpnt,0),
+                                                      spsremove_msl      =     nvl(spsremove_msl,0) + nvl(x.remove_actmsl,0),
+                                                      spsexpired_pnt       = x.expired_actpnt,
+                                                      spsexpired_msl       = x.expired_actmsl,
+                                                      spsprog_id             = pi_prog_id,
+                                                      spsupd_by              = pi_user_id,
+                                                      spsupd_date           = sysdate
+                                            where spsou_code    = x.oucode
+                                                and spsprogref     = pi_prog_id
+                                                and spscode         = x.scdcode
+                                                and spsseqlevel    = x.brdreward_level
+                                                and spsofmonth   = to_char(to_date(pi_work_date, 'dd/mm/yyyy'), 'MMYYYY')
+                                                and spslastdate    = to_date(pi_work_date, 'dd/mm/yyyy')
+                                                and spscampaign  = p_camp
+                                                and spsredeem_money  =  x.redeem_money
+                                                and spsdstgroup   = x.dstgrp;
+                                          Exception when no_data_found Then null;
+                                          End;
+                                    when others then --dbms_output.put_line(sqlerrm);
+                                              --v_cnt_error := v_cnt_error+1;
+                                              po_process_status     := -9;
+                                              po_error_message := 'Insert : '||substr(sqlerrm,1, 150);
+                                              pkgsu_jobs.write_to_log (    pi_jobno,
+                                                                                      'ERR',
+                                                                                      po_error_message,
+                                                                                      'Update Point Montly',
+                                                                                      sysdate,
+                                                                                      sysdate,
+                                                                                      v_pk,
+                                                                                      pi_jobno,
+                                                                                      pi_user_id,
+                                                                                      pi_prog_id);
+                            End;
+
+                            commit;
+
+                            --- find Balance of Level ---
+                            Begin
+
+                             select   /* +parallel (pnt, 8)*/
+                                          count(distinct pnt.optrep_seq) cntmsl,
+                                          sum(pnt.optact_point_bal) sumpnt,
+                                          count(distinct decode(nvl(sign(pntm.adjust_actpt),0), 0, null, pnt.optrep_seq)) adjust_actmsl,
+                                          sum(pntm.adjust_actpt) adjust_actpt
+                               into     p_bal_msl,
+                                         p_bal_point,
+                                         p_adj_msl,
+                                         p_adj_point
+                             from om_transaction_pnt pnt, sa_point_mntly_tmp_ys pntm
+                            where pnt.optou_code                = pi_ou_code
+                              and pnt.optpoint_prog_type        = 'B'
+                              and pnt.optou_code                = pntm.optou_code
+                              and pnt.optrep_seq                = pntm.optrep_seq
+                              and pnt.optline_seq               = pntm.pntmax
+                              and pnt.optact_point_bal between nvl(x.snum,0) and nvl(x.enum, 999999999);
+                              Exception when no_data_found then p_bal_point := 0; p_bal_msl := 0;
+                            End;
+
+                            Begin
+                            select 'x'
+                               into v_tmp
+                              from sa_point_mntly_ys
+                            where spsou_code        = x.oucode
+                                and spsprogref         = pi_prog_id
+                                and spscode             = x.scdcode
+                                and spsseqlevel        = x.brdreward_level
+                                and spsofmonth       = to_char(to_date(pi_work_date, 'dd/mm/yyyy'), 'MMYYYY')
+                                and spslastdate        = to_date(pi_work_date, 'dd/mm/yyyy')
+                                and spscampaign      = p_camp
+                                and spsredeem_money = x.redeem_money
+                                and spsdstgroup       = x.dstgrp;
+                                            ------- ###################### ---------
+                                           Begin
+                                           Update sa_point_mntly_ys
+                                                set  spsadjust_pnt    = nvl( spsadjust_pnt,0) + nvl(p_adj_point,0),
+                                                       spsadjust_msl   = nvl(spsadjust_msl ,0) + nvl(p_adj_msl,0),
+                                                       spsbalance_pnt  = nvl(spsbalance_pnt,0) + nvl(p_bal_point,0),
+                                                       spsbalance_msl  = nvl(spsbalance_msl,0) + nvl(p_bal_msl,0),
+                                                       spsprog_id         = 'UPDBAL',
+                                                       spsupd_date       = sysdate
+                                            where spsou_code        = x.oucode
+                                                and spsprogref         = pi_prog_id
+                                                and spscode             = x.scdcode
+                                                and spsseqlevel        = x.brdreward_level
+                                                and spsofmonth        = to_char(to_date(pi_work_date, 'dd/mm/yyyy'), 'MMYYYY')
+                                                and spslastdate        = to_date(pi_work_date, 'dd/mm/yyyy')
+                                                and spscampaign      = p_camp
+                                                and spsredeem_money = x.redeem_money
+                                                and spsdstgroup       = x.dstgrp;
+                                            End;
+                                            ------- ###################### ---------
+                            Exception when no_data_found Then null;
+                                           Begin
+                                           Insert into sa_point_mntly_ys
+                                                (spsou_code, spsprogref, spscode, spsseqlevel, spsofmonth, spslastdate, spscampaign,
+                                                  spsdstgroup, spsbalance_pnt, spsbalance_msl,
+                                                  spsadjust_pnt, spsadjust_msl,
+                                                  spscre_by, spscre_date, spsprog_id, spsupd_by, spsupd_date, spsredeem_money, spsvolumn_no)
+                                           Values
+                                                (  x.oucode, pi_prog_id,  x.scdcode, x.brdreward_level, to_char(to_date(pi_work_date, 'dd/mm/yyyy'), 'MMYYYY'), to_date(pi_work_date, 'dd/mm/yyyy'), p_camp,
+                                                   x.dstgrp,  p_bal_point, p_bal_msl,
+                                                   p_adj_point, p_adj_msl,
+                                                   pi_user_id, sysdate, pi_prog_id, pi_user_id, sysdate, x.redeem_money, x.volumn_no);
+                                           Exception when dup_val_on_index then null;
+                                           End;
+                            End;
+
+                            commit;
+
+                        End Loop;  --- Point
+                   --End Loop;    --- Loop by District
+                   commit;
+            End Loop;
+       e_date := sysdate;
+
+       pkgsu_jobs.write_monitor(pi_jobno, to_date(pi_work_date, 'dd/mm/yyyy'), 'Complete : BPR Monthly', s_date, e_date, 1, 0, 'Process', 'C',  pi_user_id, sysdate, pi_prog_id);
+
+ElsIf     nvl(pi_type, 'MTD') = 'YTD' Then
+        s_date := sysdate;
+
+        for rwd in tmplte Loop
+                -- dbms_output.put_line(rwd.sclcode);
+                Begin
+                    delete sa_point_yearly_ys
+                    where spsou_code     = pi_ou_code
+                        and spsprogref      = pi_prog_id
+                        and spscode          = rwd.sclcode
+                        and spsofyear        = to_char(to_date(pi_work_date, 'dd/mm/yyyy'), 'YYYY')
+                        and spslastdate      >= to_date(pi_work_date, 'dd/mm/yyyy');
+                Exception when no_data_found Then null;
+                End;
+
+                Begin
+                    prepare_repdetail (pi_ou_code,
+                                                to_char(p_start_date, 'dd/mm/yyyy'),
+                                                pi_work_date,
+                                                rwd.brwvolumn_no,
+                                                rwd.brwdistype_status,
+                                                rwd.brwreptype_status);
+                End;
+
+                --for dst in dist loop
+                            for x in pnt_mntly (p_start_date, /*dst.dstloc_code, dst.dstgrp, dst.dstdistrict_type,*/ rwd.sclcode, rwd.brwvolumn_no, rwd.brwdistype_status, rwd.brwreptype_status) Loop
+
+                                  v_pk := substr(x.scdcode||'|'||x.brdreward_level||'|'||to_date(pi_work_date, 'dd/mm/yyyy')||'|'||p_camp||'|'||x.dstgrp, 1, 100);
+
+                                Begin
+                                  Insert into sa_point_yearly_ys
+                                            (  spsou_code, spsprogref, spscode, spsseqlevel, spsofyear, spslastdate, spscampaign,
+                                               spsdstgroup, spsaddtmp_pntmis, spsaddtmp_pntfri, spsaddtmp_pntfar, spsaddtmp_pntoth, spsaddtmp_pntttl,
+                                               spsaddtmp_mslmis, spsaddtmp_mslfri, spsaddtmp_mslfar, spsaddtmp_msloth,  spsaddtmp_mslttl,
+                                               spsaddact_pntmis, spsaddact_pntfri, spsaddact_pntfar,  spsaddact_pntoth,
+                                               spsaddact_pntttl,
+                                               spsaddact_mslmis, spsaddact_mslfri, spsaddact_mslfar, spsaddact_msloth,
+                                               spsaddact_mslttl,
+                                               spsusage_pnt, spsusage_msl,
+                                               spsremove_pnt, spsremove_msl,
+                                               --spsadjust_pnt, spsadjust_msl,
+                                               spsexpired_pnt, spsexpired_msl,
+                                               spscre_by, spscre_date, spsprog_id, spsupd_by, spsupd_date, spsredeem_money, spsvolumn_no)
+                                  Values ( x.oucode, pi_prog_id, x.scdcode, x.brdreward_level, to_char(to_date(pi_work_date, 'dd/mm/yyyy'), 'YYYY'), to_date(pi_work_date, 'dd/mm/yyyy'),  p_camp,
+                                               x.dstgrp,  x.add_tmppnt_mis, x.add_tmppnt_fri, x.add_tmppnt_far, x.add_tmppnt_oth,  x.add_tmppnt_ttl,
+                                               x.add_tmpmsl_mis, x.add_tmpmsl_fri,
+                                               x.add_tmpmsl_far,  x.add_tmpmsl_oth, x.add_tmpmsl_ttl,
+                                               x.add_actpnt_mis,   x.add_actpnt_fri,  x.add_actpnt_far,     x.add_actpnt_oth,
+                                               nvl(x.add_actpnt_mis, 0) + nvl( x.add_actpnt_fri,0) + nvl( x.add_actpnt_far,0) + nvl( x.add_actpnt_oth,0),
+                                               x.add_actmsl_mis,  x.add_actmsl_fri, x.add_actmsl_far,  x.add_actmsl_oth,
+                                               nvl(x.add_actmsl_mis, 0) + nvl(x.add_actmsl_fri,0) + nvl( x.add_actmsl_far,0) + nvl( x.add_actmsl_oth,0),
+                                               x.redeem_actpnt,   x.redeem_actmsl,
+                                               x.remove_actpnt,   x.remove_actmsl,
+                                               --x.adjust_actpnt,     x.adjust_actmsl,
+                                               x.expired_actpnt,   x.expired_actmsl,
+                                               pi_user_id, sysdate, pi_prog_id, pi_user_id, sysdate, x.redeem_money, x.volumn_no) ;
+                                Exception when dup_val_on_index then
+                                              Begin
+                                               update sa_point_yearly_ys
+                                                    set spsaddtmp_pntmis = nvl(spsaddtmp_pntmis,0) + nvl(x.add_tmppnt_mis,0),
+                                                          spsaddtmp_pntfri   = nvl(spsaddtmp_pntfri,0) + nvl(x.add_tmppnt_fri,0),
+                                                          spsaddtmp_pntfar =  nvl(spsaddtmp_pntfar,0) + nvl(x.add_tmppnt_far,0),
+                                                          spsaddtmp_pntoth = nvl(spsaddtmp_pntoth,0) + nvl(x.add_tmppnt_oth,0),
+                                                          spsaddtmp_pntttl   = nvl(spsaddtmp_pntttl,0) + nvl(x.add_tmppnt_ttl,0),
+                                                          spsaddtmp_mslmis =  nvl(spsaddtmp_mslmis,0) + nvl(x.add_tmpmsl_mis,0),
+                                                          spsaddtmp_mslfri   =  nvl(spsaddtmp_mslfri,0) + nvl(x.add_tmpmsl_fri,0),
+                                                          spsaddtmp_mslfar  =  nvl(spsaddtmp_mslfar,0) + nvl(x.add_tmpmsl_far,0),
+                                                          spsaddtmp_msloth  =  nvl(spsaddtmp_msloth,0) + nvl(x.add_tmpmsl_oth,0),
+                                                          spsaddtmp_mslttl   =   nvl(spsaddtmp_mslttl,0) + nvl(x.add_tmpmsl_ttl,0),
+                                                          spsaddact_pntmis   =  nvl(spsaddact_pntmis,0) + nvl( x.add_actpnt_mis,0),
+                                                          spsaddact_pntfri     =   nvl(spsaddact_pntfri,0) + nvl(x.add_actpnt_fri,0),
+                                                          spsaddact_pntfar    =   nvl(spsaddact_pntfar,0) + nvl(x.add_actpnt_far,0),
+                                                          spsaddact_pntoth   =   nvl(spsaddact_pntoth,0) + nvl(x.add_actpnt_oth,0),
+                                                          spsaddact_pntttl     =   nvl(spsaddact_pntttl ,0) +
+                                                                                                   ( nvl(x.add_actpnt_mis, 0) + nvl( x.add_actpnt_fri,0) + nvl( x.add_actpnt_far,0) + nvl( x.add_actpnt_oth,0) ),
+                                                          spsaddact_mslmis  =  nvl(spsaddact_mslmis ,0) + nvl(x.add_actmsl_mis,0),
+                                                          spsaddact_mslfri    =  nvl(spsaddact_mslfri,0) + nvl(x.add_actmsl_fri,0),
+                                                          spsaddact_mslfar   =  nvl(spsaddact_mslfar,0) + nvl(x.add_actmsl_far,0),
+                                                          spsaddact_msloth   = nvl(spsaddact_msloth,0) + nvl(x.add_actmsl_oth,0),
+                                                          spsaddact_mslttl     = nvl(spsaddact_mslttl,0) +
+                                                                                                  ( nvl(x.add_actmsl_mis, 0) + nvl(x.add_actmsl_fri,0) + nvl( x.add_actmsl_far,0) + nvl( x.add_actmsl_oth,0) ),
+                                                          spsusage_pnt         =   nvl(spsusage_pnt,0) + nvl(x.redeem_actpnt,0),
+                                                          spsusage_msl         =  nvl(spsusage_msl,0) + nvl( x.redeem_actmsl,0),
+                                                          spsremove_pnt       =  nvl(spsremove_pnt,0) + nvl(x.remove_actpnt,0),
+                                                          spsremove_msl      =  nvl(spsremove_msl,0) + nvl( x.remove_actmsl,0),
+                                                          spsexpired_pnt       = nvl(spsexpired_pnt,0) + nvl(x.expired_actpnt,0),
+                                                          spsexpired_msl       = nvl(spsexpired_msl,0) + nvl(x.expired_actmsl,0),
+                                                          spsprog_id             = pi_prog_id,
+                                                          spsupd_by              = pi_user_id,
+                                                          spsupd_date           = sysdate
+                                                where spsou_code    = x.oucode
+                                                    and spsprogref     = pi_prog_id
+                                                    and spscode         = x.scdcode
+                                                    and spsseqlevel    = x.brdreward_level
+                                                    and spsofyear    = to_char(to_date(pi_work_date, 'dd/mm/yyyy'), 'YYYY')
+                                                    and spslastdate    = to_date(pi_work_date, 'dd/mm/yyyy')
+                                                    and spscampaign  = p_camp
+                                                    and spsredeem_money = x.redeem_money
+                                                    and spsdstgroup   = x.dstgrp;
+                                              Exception when no_data_found Then null;
+                                              End;
+                                        when others then --dbms_output.put_line(sqlerrm);
+                                                  --v_cnt_error := v_cnt_error+1;
+                                                  po_process_status     := -9;
+                                                  po_error_message := 'Insert : '||substr(sqlerrm,1, 150);
+                                                  pkgsu_jobs.write_to_log (    pi_jobno,
+                                                                                          'ERR',
+                                                                                          po_error_message,
+                                                                                          'Update Point Montly',
+                                                                                          sysdate,
+                                                                                          sysdate,
+                                                                                          v_pk,
+                                                                                          pi_jobno,
+                                                                                          pi_user_id,
+                                                                                          pi_prog_id);
+                                End;
+
+                                commit;
+
+                                --- find Balance of Level ---
+                                Begin
+                               select /* +parallel (pnt, 8)*/
+                                          count(distinct pnt.optrep_seq) cntmsl,
+                                          sum(pnt.optact_point_bal) sumpnt,
+                                          count(distinct decode(nvl(sign(pntm.adjust_actpt),0), 0, null, pnt.optrep_seq)) adjust_actmsl,
+                                          sum(pntm.adjust_actpt) adjust_actpt
+                                    into  p_bal_msl,
+                                              p_bal_point,
+                                              p_adj_msl,
+                                              p_adj_point
+                                 from om_transaction_pnt pnt, sa_point_mntly_tmp_ys pntm
+                                where pnt.optou_code                = pi_ou_code
+                                  and pnt.optpoint_prog_type        = 'B'
+                                  and pnt.optou_code                = pntm.optou_code
+                                  and pnt.optrep_seq                = pntm.optrep_seq
+                                  and pnt.optline_seq               = pntm.pntmax
+                                  and pnt.optact_point_bal between nvl(x.snum,0) and nvl(x.enum, 999999999);
+
+                                    Exception when no_data_found then p_bal_point := 0; p_bal_msl := 0;
+                                End;
+
+                                Begin
+                                select 'x'
+                                   into v_tmp
+                                  from sa_point_yearly_ys
+                                where spsou_code        = x.oucode
+                                    and spsprogref         = pi_prog_id
+                                    and spscode             = x.scdcode
+                                    and spsseqlevel        = x.brdreward_level
+                                    and spsofyear           = to_char(to_date(pi_work_date, 'dd/mm/yyyy'), 'YYYY')
+                                    and spslastdate        = to_date(pi_work_date, 'dd/mm/yyyy')
+                                    and spscampaign      = p_camp
+                                    and spsredeem_money = x.redeem_money
+                                    and spsdstgroup        = x.dstgrp;
+                                                ------- ###################### ---------
+                                               Begin
+                                               Update sa_point_yearly_ys
+                                                    set  spsadjust_pnt    = nvl(spsadjust_pnt,0) + nvl(p_adj_point,0),
+                                                           spsadjust_msl   = nvl(spsadjust_msl,0) + nvl(p_adj_msl,0),
+                                                          spsbalance_pnt  = nvl(spsbalance_pnt,0) + nvl(p_bal_point,0),
+                                                          spsbalance_msl  = nvl(spsbalance_msl,0) + nvl(p_bal_msl,0),
+                                                          spsprog_id         = 'UPDBAL',
+                                                          spsupd_date       = sysdate
+                                                where spsou_code        = x.oucode
+                                                    and spsprogref         = pi_prog_id
+                                                    and spscode             = x.scdcode
+                                                    and spsseqlevel        = x.brdreward_level
+                                                    and spsofyear           = to_char(to_date(pi_work_date, 'dd/mm/yyyy'), 'YYYY')
+                                                    and spslastdate        = to_date(pi_work_date, 'dd/mm/yyyy')
+                                                    and spscampaign      = p_camp
+                                                    and spsredeem_money = x.redeem_money
+                                                    and spsdstgroup       = x.dstgrp;
+                                                End;
+                                                ------- ###################### ---------
+                                Exception when no_data_found Then null;
+                                               Begin
+                                               Insert into sa_point_yearly_ys
+                                                    (spsou_code, spsprogref, spscode, spsseqlevel, spsofyear, spslastdate, spscampaign,
+                                                      spsdstgroup, spsbalance_pnt, spsbalance_msl,
+                                                      spsadjust_pnt, spsadjust_msl,
+                                                      spscre_by, spscre_date, spsprog_id, spsupd_by, spsupd_date,  spsredeem_money, spsvolumn_no)
+                                               Values
+                                                    (  x.oucode, pi_prog_id,  x.scdcode, x.brdreward_level, to_char(to_date(pi_work_date, 'dd/mm/yyyy'), 'YYYY'), to_date(pi_work_date, 'dd/mm/yyyy'), p_camp,
+                                                       x.dstgrp,  p_bal_point, p_bal_msl,
+                                                       p_adj_point, p_adj_msl,
+                                                       pi_user_id, sysdate, pi_prog_id, pi_user_id, sysdate, x.redeem_money, x.volumn_no);
+                                               Exception when dup_val_on_index then null;
+                                               End;
+                                End;
+
+                                commit;
+
+                            End Loop;  --- point
+                    --End Loop; --- district;
+                    commit;
+            End Loop;
+            e_date := sysdate;
+
+            pkgsu_jobs.write_monitor(pi_jobno, to_date(pi_work_date, 'dd/mm/yyyy'), 'Complete : BPR Yearly', s_date, e_date, 1, 0, 'Process', 'C',  pi_user_id, sysdate, pi_prog_id);
+
+       end if;
+
+  END Update_Point_Montly;
+
+  Procedure Update_Point_Campaignly  (       pi_ou_code    in  om_bal_campest.dslou_code%type,
+                                                           pi_work_date  in varchar2,
+                                                           pi_type           in varchar2 default 'CTD',
+                                                           pi_user_id       in  om_bal_campest.dslcre_by%type,
+                                                           pi_prog_id       in  om_bal_campest.dslprog_id%type,
+                                                           pi_jobno          in   su_jobs_regis.jbrjob_no%type,
+                                                           po_process_status out number,
+                                                           po_error_message  out varchar2) is
+     cursor tmplte is
+            select sclcode, null brwvolumn_no,
+                       '0'  brwdistype_status,
+                       '1' brwreptype_status
+               from sa_criteria_lvl_hdr
+            where  sclou_code    = pi_ou_code
+                and  sclprogref_id = pi_prog_id
+                and  nvl(sclinactive_status, '0') = '0'
+                and  sclcode         = 'BEOMRP92';
+
+     cursor  pnt_cmply (   pi_start_date date,
+                                   pi_template sa_criteria_lvl_hdr.sclcode%type,
+                                   pi_volumn   db_bpr_reward_hdr.brwvolumn_no%type,
+                                   pi_disttype   db_bpr_reward_hdr.brwdistype_status%type,
+                                   pi_reptype   db_bpr_reward_hdr.brwreptype_status%type) is
+
+            select --floor(rownum/(select count(*) from su_param_dtl a where a.padparam_id=97 and  nvl(a.padflag1,'0')='0')-0.000000001) brdreward_level,t.*
+                   rownum-1 brdreward_level,t.*
+            from
+            (
+               select    scdou_code oucode, scdcode, pi_volumn volumn_no,
+                           nvl(scd.scdseq,0) rwd_level, scdcriteria_snumber snum, scdcriteria_enumber enum,0 redeem_money,padentry_code dstgrp,
+                           sum( case when add_tmppnt_mis between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_tmppnt_mis end) add_tmppnt_mis,
+                           count( distinct case when add_tmppnt_mis between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq end) add_tmpmsl_mis,
+                           sum( case when add_tmppnt_fri   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_tmppnt_fri   end) add_tmppnt_fri,
+                           count( distinct case when add_tmppnt_fri   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq  end) add_tmpmsl_fri,
+                           sum( case when add_tmppnt_far  between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_tmppnt_far  end) add_tmppnt_far,
+                           count( distinct case when add_tmppnt_far  between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq  end) add_tmpmsl_far,
+                           sum( case when add_tmppnt_oth between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_tmppnt_oth  end) add_tmppnt_oth,
+                           count( distinct case when add_tmppnt_oth between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq  end) add_tmpmsl_oth,
+                           ---- ********* -----
+                           sum( case when add_tmppnt_ttl between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_tmppnt_ttl  end) add_tmppnt_ttl,
+                           count( distinct case when add_tmppnt_ttl between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq  end) add_tmpmsl_ttl,
+                           ---- ********* -----
+                           sum( case when add_actpnt_mis  between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_actpnt_mis  end) add_actpnt_mis,
+                           count( distinct case when add_actpnt_mis  between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq  end) add_actmsl_mis,
+                           sum( case when add_actpnt_fri    between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_actpnt_fri    end) add_actpnt_fri,
+                           count( distinct case when add_actpnt_fri    between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq  end) add_actmsl_fri,
+                           sum( case when add_actpnt_far   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_actpnt_far   end) add_actpnt_far,
+                           count( distinct case when add_actpnt_far   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq  end) add_actmsl_far,
+                           sum( case when add_actpnt_oth   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_actpnt_oth  end) add_actpnt_oth,
+                           count( distinct case when add_actpnt_oth   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq end) add_actmsl_oth,
+                           ---- ********* -----
+                           sum( case when add_actpnt_ttl   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then add_actpnt_ttl  end) add_actpnt_ttl,
+                           count( distinct case when add_actpnt_ttl   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq end) add_actmsl_ttl,
+                           ---- ********* -----
+                           sum( case when pnt.brdredeem_point   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then redeem_actpnt  end) redeem_actpnt,
+                           count( distinct case when pnt.brdredeem_point   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq end) redeem_actmsl,
+                           sum( case when remove_actpnt   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then remove_actpnt  end) remove_actpnt,
+                           count( distinct case when remove_actpnt   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq end) remove_actmsl,
+                           sum( case when expired_actpnt   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then expired_actpnt  end) expired_actpnt,
+                           count( distinct case when expired_actpnt   between nvl(scdcriteria_snumber, 0) and nvl(scdcriteria_enumber, 999999999) then repseq end) expired_actmsl
+                   from sa_criteria_lvl_dtl scd, sa_criteria_lvl_hdr scl,
+                    (
+                            select   /* +parallel (rep, 4)*/
+                                      oucode, dstsales_group, asofdate, repseq, brdredeem_point, brdredeem_money, brdvolumn_no volumn_no,
+                                      add_tmppnt_mis, add_tmpmsl_mis, add_tmppnt_fri, add_tmpmsl_fri, add_tmppnt_far, add_tmpmsl_far, add_tmppnt_oth, add_tmpmsl_oth, add_tmppnt_ttl, add_tmpmsl_ttl,
+                                      add_actpnt_mis, add_actmsl_mis, add_actpnt_fri, add_actmsl_fri, add_actpnt_far, add_actmsl_far, add_actpnt_oth, add_actmsl_oth, add_actpnt_ttl, add_actmsl_ttl,
+                                      redeem_actpnt, redeem_actmsl, remove_actpnt, remove_actmsl, expired_actpnt, expired_actmsl
+                             from sa_point_cmply_byrep_mk rep
+                           where rep.oucode            = pi_ou_code
+                               and rep.asofdate        = to_date(pi_work_date, 'dd/mm/yyyy')
+                     ) pnt, su_param_dtl dsg
+                where  scd.scdou_code            =  pi_ou_code
+                   and  scd.scdprogref_id        =  pi_prog_id
+                   and  scd.scdcode              =  pi_template
+                   and  scd.scdou_code           =  scl.sclou_code
+                   and  scd.scdprogref_id        =  scl.sclprogref_id
+                   and  scl.sclcode              =  scd.scdcode
+                   and  dsg.padparam_id          =  97
+                   and  nvl(dsg.padflag1, '0')   =  '0'
+                   and  dsg.padentry_code        =  11
+                   and  dsg.padentry_code        =  dstsales_group(+)
+              group by scdou_code, scdcode, scd.scdseq, scdcriteria_snumber, scdcriteria_enumber, padentry_code
+              order by  scdcriteria_snumber, rwd_level, redeem_money, dstgrp
+            ) t
+            order by  rwd_level, snum, redeem_money, dstgrp;
+
+  p_camp db_campaign.cpgcampaign_code%type;
+  p_year db_campaign.cpgcampaign_year%type;
+  p_lastdate db_campaign.cpgeff_edate%type;
+
+  p_bal_point number;
+  p_bal_msl   number;
+
+  p_adj_point number;
+  p_adj_msl   number;
+
+  v_pk varchar2(100);
+  p_start_date date;
+  v_tmp varchar2(1);
+
+  s_date    date;
+  e_date    date;
+
+        procedure prepare_repdetail (  v_ou_code    in  om_bal_campest.dslou_code%type,
+                                                      v_start_date in varchar2,
+                                                      v_end_date  in varchar2,
+                                                      v_volumn   db_bpr_reward_hdr.brwvolumn_no%type,
+                                                      v_disttype   db_bpr_reward_hdr.brwdistype_status%type,
+                                                      v_reptype   db_bpr_reward_hdr.brwreptype_status%type) is
+        Begin
+              Begin
+                delete sa_point_cmply_byrep_mk purge;
+                commit;
+                delete sa_point_cmply_tmp_mk purge;
+                commit;
+              End;
+              Begin
+                   insert into /*+append*/sa_point_cmply_byrep_mk
+                              (oucode, dstsales_group, asofdate, repseq, brdredeem_point,
+                               add_tmppnt_mis, add_tmpmsl_mis, add_tmppnt_fri, add_tmpmsl_fri, add_tmppnt_far, add_tmpmsl_far, add_tmppnt_oth, add_tmpmsl_oth, add_tmppnt_ttl, add_tmpmsl_ttl,
+                               add_actpnt_mis, add_actmsl_mis, add_actpnt_fri, add_actmsl_fri, add_actpnt_far, add_actmsl_far, add_actpnt_oth, add_actmsl_oth, add_actpnt_ttl, add_actmsl_ttl,
+                               redeem_actpnt, redeem_actmsl, remove_actpnt, remove_actmsl, expired_actpnt, expired_actmsl, brdredeem_money, brdvolumn_no)
+                   select ou_code oucode, dstsales_group, trunc(to_date(v_end_date, 'dd/mm/yyyy')) asofdate,
+                               repseq, brdredeem_point,
+                               sum (add_tmppnt_mis) add_tmppnt_mis,
+                               sum (add_tmpmsl_mis) add_tmpmsl_mis,
+                               sum (add_tmppnt_fri) add_tmppnt_fri,
+                               sum (add_tmpmsl_fri) add_tmpmsl_fri,
+                               sum (add_tmppnt_far) add_tmppnt_far,
+                               sum (add_tmpmsl_far) add_tmpmsl_far,
+                               sum (add_tmppnt_oth) add_tmppnt_oth,
+                               sum (add_tmpmsl_oth) add_tmpmsl_oth,
+                               sum (add_tmppnt_ttl) add_tmppnt_ttl,
+                               sum (add_tmpmsl_ttl) add_tmpmsl_ttl,
+                               sum (add_actpnt_mis) add_actpnt_mis,
+                               sum (add_actmsl_mis) add_actmsl_mis,
+                               sum (add_actpnt_fri) add_actpnt_fri,
+                               sum (add_actmsl_fri) add_actmsl_fri,
+                               sum (add_actpnt_far) add_actpnt_far,
+                               sum (add_actmsl_far) add_actmsl_far,
+                               sum (add_actpnt_oth) add_actpnt_oth,
+                               sum (add_actmsl_oth) add_actmsl_oth,
+                               sum (add_actpnt_ttl) add_actpnt_ttl,
+                               sum (add_actmsl_ttl) add_actmsl_ttl,
+                               sum (redeem_actpnt) redeem_actpnt,
+                               sum (redeem_actmsl) redeem_actmsl,
+                               sum (remove_actpnt) remove_actpnt,
+                               sum (remove_actmsl) remove_actmsl,
+                               sum (expired_actpnt) expired_actpnt,
+                               sum (expired_actmsl) expired_actmsl,
+                               brdredeem_money,
+                               brdvolumn_no
+              from sa_point_daily_byrep
+              group by ou_code, brdvolumn_no, dstsales_group, repseq, brdredeem_point, brdredeem_money;
+
+                    commit;
+
+              Exception when others Then null;
+              End;
+              --- create temporary max point lineseq for campaignend process
+              Begin
+                     insert into /*+append*/sa_point_cmply_tmp_mk
+                             (optou_code, optrep_seq, pntmax, adjust_actpt)
+                     select /* +parallel (pnt2, 4)*/
+                              pnt2.optou_code, pnt2.optrep_seq, --optupd_rep_code,
+                              max(pnt2.optline_seq) pntmax,
+                              sum( case when trunc(pnt2.opttrans_date)    >= trunc(to_date(v_start_date, 'dd/mm/yyyy'))
+                                                  and trunc(pnt2.opttrans_date)  <= trunc(to_date(v_end_date, 'dd/mm/yyyy'))
+                                                  and pnt2.optpnt_type = 'A' and (nvl(pnt2.optact_point_in, 0) - nvl(pnt2.optact_point_out, 0)) <> 0 then nvl(pnt2.optact_point_in, 0) - nvl(pnt2.optact_point_out, 0) end) adjust_actpt
+                     from  om_transaction_pnt pnt2
+                   where pnt2.optou_code                = v_ou_code
+                       and pnt2.optpoint_prog_type     = 'B'
+                       and trunc(pnt2.opttrans_date)  <= trunc(to_date(v_end_date, 'dd/mm/yyyy'))
+                    group by optou_code, optrep_seq;
+
+                    commit;
+
+              End;
+        End prepare_repdetail ;
+
+  Begin
+       s_date  := sysdate;
+
+       If     nvl(pi_type, 'CTD') = 'CTD' Then
+              p_start_date    := pkgdb_desc.getCampaign_Sdate(pi_ou_code,pkgdb_desc.getcampaign_bydate(pi_ou_code,to_date(pi_work_date, 'dd/mm/yyyy')-1));
+       ElsIf nvl(pi_type, 'CTD') = 'YTD' Then
+              p_start_date    := pkgdb_desc.getCampaign_Sdate(pi_ou_code,'01'||substr(pkgdb_desc.getcampaign_bydate(pi_ou_code,to_date(pkgdb_desc.getCampaign_Sdate(pi_ou_code,pkgdb_desc.getcampaign_bydate(pi_ou_code,to_date(pi_work_date, 'dd/mm/yyyy'))), 'dd/mm/yyyy')),3,4));
+       End If;
+
+       p_camp           := pkgdb_desc.getcampaign_bydate(pi_ou_code, to_date(pi_work_date, 'dd/mm/yyyy')-1);
+       p_lastdate        := to_date(pi_work_date, 'dd/mm/yyyy');
+
+       If     nvl(pi_type, 'CTD') = 'CTD' Then
+        for rwd in tmplte Loop
+                -- dbms_output.put_line(rwd.sclcode);
+                Begin
+                    delete sa_point_cmply_mk
+                    where spsou_code     = pi_ou_code
+                        and spsprogref      = pi_prog_id
+                        and spscode          = rwd.sclcode
+                        and spsofcampaign = p_camp      --to_char(to_date(pi_work_date, 'dd/mm/yyyy'), 'MMYYYY')
+                        and spslastdate      >= p_lastdate;
+                Exception when no_data_found Then null;
+                End;
+
+                Begin
+                    prepare_repdetail (pi_ou_code,
+                                                to_char(p_start_date, 'dd/mm/yyyy'),
+                                                pi_work_date,
+                                                rwd.brwvolumn_no,
+                                                rwd.brwdistype_status,
+                                                rwd.brwreptype_status);
+                End;
+
+                --For dst in dist Loop
+                        for x in pnt_cmply (p_start_date, /*dst.dstloc_code, dst.dstgrp, dst.dstdistrict_type, */rwd.sclcode, rwd.brwvolumn_no, rwd.brwdistype_status, rwd.brwreptype_status) Loop
+
+                              v_pk := substr(x.scdcode||'|'||x.brdreward_level||'|'||p_lastdate||'|'||p_camp||'|'||x.dstgrp, 1, 100);
+
+                              p_bal_msl     := 0;
+                              p_bal_point  := 0;
+                              p_adj_msl     := 0;
+                              p_adj_point  := 0;
+
+                            Begin
+                              Insert into sa_point_cmply_mk
+                                        (  spsou_code, spsprogref, spscode, spsseqlevel, spsofcampaign, spslastdate, spscampaign,
+                                           spsdstgroup, spsaddtmp_pntmis, spsaddtmp_pntfri, spsaddtmp_pntfar, spsaddtmp_pntoth, spsaddtmp_pntttl,
+                                           spsaddtmp_mslmis, spsaddtmp_mslfri, spsaddtmp_mslfar, spsaddtmp_msloth,  spsaddtmp_mslttl,
+                                           spsaddact_pntmis, spsaddact_pntfri, spsaddact_pntfar,  spsaddact_pntoth,
+                                           spsaddact_pntttl,
+                                           spsaddact_mslmis, spsaddact_mslfri, spsaddact_mslfar, spsaddact_msloth,
+                                           spsaddact_mslttl,
+                                           spsusage_pnt, spsusage_msl,
+                                           spsremove_pnt, spsremove_msl,
+                                           --spsadjust_pnt, spsadjust_msl,
+                                           spsexpired_pnt, spsexpired_msl,
+                                           spscre_by, spscre_date, spsprog_id, spsupd_by, spsupd_date, spsredeem_money, spsvolumn_no)
+                              Values ( x.oucode, pi_prog_id, x.scdcode, x.brdreward_level, p_camp, p_lastdate,  p_camp,
+                                           x.dstgrp,  x.add_tmppnt_mis, x.add_tmppnt_fri, x.add_tmppnt_far, x.add_tmppnt_oth,  x.add_tmppnt_ttl,
+                                               x.add_tmpmsl_mis, x.add_tmpmsl_fri,
+                                               x.add_tmpmsl_far,  x.add_tmpmsl_oth, x.add_tmpmsl_ttl,
+                                               x.add_actpnt_mis,   x.add_actpnt_fri,  x.add_actpnt_far,     x.add_actpnt_oth,
+                                               nvl(x.add_actpnt_mis, 0) + nvl( x.add_actpnt_fri,0) + nvl( x.add_actpnt_far,0) + nvl( x.add_actpnt_oth,0),
+                                               x.add_actmsl_mis,  x.add_actmsl_fri, x.add_actmsl_far,  x.add_actmsl_oth,
+                                               nvl(x.add_actmsl_mis, 0) + nvl(x.add_actmsl_fri,0) + nvl( x.add_actmsl_far,0) + nvl( x.add_actmsl_oth,0),
+                                               x.redeem_actpnt,   x.redeem_actmsl,
+                                               x.remove_actpnt,   x.remove_actmsl,
+                                               --x.adjust_actpnt,     x.adjust_actmsl,
+                                               x.expired_actpnt,   x.expired_actmsl,
+                                               pi_user_id, sysdate, pi_prog_id, pi_user_id, sysdate, x.redeem_money,x.volumn_no) ;
+                            Exception when dup_val_on_index then
+                                          Begin
+                                           update sa_point_cmply_mk
+                                                set spsaddtmp_pntmis = nvl(spsaddtmp_pntmis,0) + nvl(x.add_tmppnt_mis,0),
+                                                      spsaddtmp_pntfri   =  nvl(spsaddtmp_pntfri,0) + nvl(x.add_tmppnt_fri,0),
+                                                      spsaddtmp_pntfar  =  nvl(spsaddtmp_pntfar,0) + nvl(x.add_tmppnt_far,0),
+                                                      spsaddtmp_pntoth =  nvl(spsaddtmp_pntoth,0) + nvl(x.add_tmppnt_oth,0),
+                                                      spsaddtmp_pntttl   =  nvl(spsaddtmp_pntttl,0) + nvl(x.add_tmppnt_ttl,0),
+                                                      spsaddtmp_mslmis = nvl(spsaddtmp_mslmis,0) + nvl(x.add_tmpmsl_mis,0),
+                                                      spsaddtmp_mslfri   = nvl(spsaddtmp_mslfri,0) + nvl(x.add_tmpmsl_fri,0),
+                                                      spsaddtmp_mslfar  = nvl(spsaddtmp_mslfar,0) + nvl(x.add_tmpmsl_far,0),
+                                                      spsaddtmp_msloth  = nvl(spsaddtmp_msloth,0) + nvl(x.add_tmpmsl_oth,0),
+                                                      spsaddtmp_mslttl  = nvl(spsaddtmp_mslttl,0) + nvl(x.add_tmpmsl_ttl,0),
+                                                      spsaddact_pntmis   = nvl(spsaddact_pntmis,0) + nvl(x.add_actpnt_mis,0),
+                                                      spsaddact_pntfri     = nvl(spsaddact_pntfri,0) + nvl(x.add_actpnt_fri,0),
+                                                      spsaddact_pntfar    = nvl(spsaddact_pntfar,0) + nvl(x.add_actpnt_far,0),
+                                                      spsaddact_pntoth   = nvl(spsaddact_pntoth,0) + nvl(x.add_actpnt_oth,0),
+                                                      spsaddact_pntttl     = nvl(spsaddact_pntttl,0) +
+                                                                                             ( nvl(x.add_actpnt_mis, 0) + nvl( x.add_actpnt_fri,0) + nvl( x.add_actpnt_far,0) + nvl( x.add_actpnt_oth,0)),
+                                                      spsaddact_mslmis  = nvl(spsaddact_mslmis,0) + nvl(x.add_actmsl_mis,0),
+                                                      spsaddact_mslfri    =  nvl(spsaddact_mslfri,0) + nvl(x.add_actmsl_fri,0),
+                                                      spsaddact_mslfar   =  nvl(spsaddact_mslfar,0) + nvl(x.add_actmsl_far,0),
+                                                      spsaddact_msloth   = nvl(spsaddact_msloth,0) + nvl(x.add_actmsl_oth,0),
+                                                      spsaddact_mslttl     = nvl(spsaddact_mslttl,0) +
+                                                                                             ( nvl(x.add_actmsl_mis, 0) + nvl(x.add_actmsl_fri,0) + nvl( x.add_actmsl_far,0) + nvl( x.add_actmsl_oth,0)),
+                                                      spsusage_pnt         = nvl(spsusage_pnt,0) + nvl(x.redeem_actpnt,0),
+                                                      spsusage_msl         =   nvl(spsusage_msl,0) + nvl(x.redeem_actmsl,0),
+                                                      spsremove_pnt       =    nvl(spsremove_pnt,0) + nvl(x.remove_actpnt,0),
+                                                      spsremove_msl      =     nvl(spsremove_msl,0) + nvl(x.remove_actmsl,0),
+                                                      spsexpired_pnt       = x.expired_actpnt,
+                                                      spsexpired_msl       = x.expired_actmsl,
+                                                      spsprog_id             = pi_prog_id,
+                                                      spsupd_by              = pi_user_id,
+                                                      spsupd_date           = sysdate
+                                            where spsou_code    = x.oucode
+                                                and spsprogref     = pi_prog_id
+                                                and spscode         = x.scdcode
+                                                and spsseqlevel    = x.brdreward_level
+                                                and spsofcampaign = p_camp        --to_char(to_date(pi_work_date, 'dd/mm/yyyy'), 'MMYYYY')
+                                                and spslastdate    = p_lastdate
+                                                and spscampaign  = p_camp
+                                                and spsredeem_money  =  x.redeem_money
+                                                and spsdstgroup   = x.dstgrp;
+                                          Exception when no_data_found Then null;
+                                          End;
+                                    when others then --dbms_output.put_line(sqlerrm);
+                                              --v_cnt_error := v_cnt_error+1;
+                                              po_process_status     := -9;
+                                              po_error_message := 'Insert : '||substr(sqlerrm,1, 150);
+                                              pkgsu_jobs.write_to_log (    pi_jobno,
+                                                                                      'ERR',
+                                                                                      po_error_message,
+                                                                                      'Update Point Campaignly',
+                                                                                      sysdate,
+                                                                                      sysdate,
+                                                                                      v_pk,
+                                                                                      pi_jobno,
+                                                                                      pi_user_id,
+                                                                                      pi_prog_id);
+                            End;
+
+                            commit;
+
+                            --- find Balance of Level ---
+                            Begin
+
+                             select   /* +parallel (pnt, 2)*/
+                                          count(distinct pnt.optrep_seq) cntmsl,
+                                          sum(pnt.optact_point_bal) sumpnt,
+                                          count(distinct decode(nvl(sign(pntm.adjust_actpt),0), 0, null, pnt.optrep_seq)) adjust_actmsl,
+                                          sum(pntm.adjust_actpt) adjust_actpt
+                               into     p_bal_msl,
+                                         p_bal_point,
+                                         p_adj_msl,
+                                         p_adj_point
+                             from om_transaction_pnt pnt, sa_point_cmply_tmp_mk pntm
+                           where pnt.optou_code               = pi_ou_code
+                              and pnt.optpoint_prog_type    = 'B'
+                              and pnt.optou_code              = pntm.optou_code
+                              and pnt.optrep_seq               = pntm.optrep_seq
+                              and pnt.optline_seq               = pntm.pntmax
+                              and pnt.optact_point_bal between nvl(x.snum,0) and nvl(x.enum, 999999999);
+                              Exception when no_data_found then p_bal_point := 0; p_bal_msl := 0;
+                            End;
+
+                            Begin
+                            select 'x'
+                               into v_tmp
+                              from sa_point_cmply_mk
+                            where spsou_code        = x.oucode
+                                and spsprogref         = pi_prog_id
+                                and spscode             = x.scdcode
+                                and spsseqlevel        = x.brdreward_level
+                                and spsofcampaign   = p_camp      --to_char(to_date(pi_work_date, 'dd/mm/yyyy'), 'MMYYYY')
+                                and spslastdate         = p_lastdate
+                                and spscampaign      = p_camp
+                                and spsredeem_money = x.redeem_money
+                                and spsdstgroup       = x.dstgrp;
+                                            ------- ###################### ---------
+                                           Begin
+                                           Update sa_point_cmply_mk
+                                                set  spsadjust_pnt    = nvl( spsadjust_pnt,0) + nvl(p_adj_point,0),
+                                                       spsadjust_msl   = nvl(spsadjust_msl ,0) + nvl(p_adj_msl,0),
+                                                       spsbalance_pnt  = nvl(spsbalance_pnt,0) + nvl(p_bal_point,0),
+                                                       spsbalance_msl  = nvl(spsbalance_msl,0) + nvl(p_bal_msl,0),
+                                                       spsprog_id         = 'UPDBAL',
+                                                       spsupd_date       = sysdate
+                                            where spsou_code        = x.oucode
+                                                and spsprogref         = pi_prog_id
+                                                and spscode             = x.scdcode
+                                                and spsseqlevel        = x.brdreward_level
+                                                and spsofcampaign   = p_camp    --to_char(to_date(pi_work_date, 'dd/mm/yyyy'), 'MMYYYY')
+                                                and spslastdate         = p_lastdate
+                                                and spscampaign      = p_camp
+                                                and spsredeem_money = x.redeem_money
+                                                and spsdstgroup       = x.dstgrp;
+                                            End;
+                                            ------- ###################### ---------
+                            Exception when no_data_found Then null;
+                                           Begin
+                                           Insert into sa_point_cmply_mk
+                                                (spsou_code, spsprogref, spscode, spsseqlevel, spsofcampaign, spslastdate, spscampaign,
+                                                  spsdstgroup, spsbalance_pnt, spsbalance_msl,
+                                                  spsadjust_pnt, spsadjust_msl,
+                                                  spscre_by, spscre_date, spsprog_id, spsupd_by, spsupd_date, spsredeem_money, spsvolumn_no)
+                                           Values
+                                                (  x.oucode, pi_prog_id,  x.scdcode, x.brdreward_level, p_camp, p_lastdate, p_camp,
+                                                   x.dstgrp,  p_bal_point, p_bal_msl,
+                                                   p_adj_point, p_adj_msl,
+                                                   pi_user_id, sysdate, pi_prog_id, pi_user_id, sysdate, x.redeem_money, x.volumn_no);
+                                           Exception when dup_val_on_index then null;
+                                           End;
+                            End;
+
+                            commit;
+
+                        End Loop;  --- Point
+                   --End Loop;    --- Loop by District
+                   commit;
+            End Loop;
+       e_date := sysdate;
+
+       pkgsu_jobs.write_monitor(pi_jobno, p_lastdate, 'Complete : BPR Campaignly', s_date, e_date, 1, 0, 'Process', 'C',  pi_user_id, sysdate, pi_prog_id);
+
+    ElsIf     nvl(pi_type, 'CTD') = 'YTD' Then
+
+        s_date := sysdate;
+        p_lastdate:= to_date(pi_work_date, 'dd/mm/yyyy');
+        p_year := to_char(p_lastdate, 'YYYY');
+
+        for rwd in tmplte Loop
+                -- dbms_output.put_line(rwd.sclcode);
+                Begin
+                    delete sa_point_yearly_mk
+                    where spsou_code     = pi_ou_code
+                        and spsprogref      = pi_prog_id
+                        and spscode          = rwd.sclcode
+                        and spsofyear        = p_year
+                        and spslastdate      >= p_lastdate;
+                Exception when no_data_found Then null;
+                End;
+
+                Begin
+                    prepare_repdetail (pi_ou_code,
+                                                to_char(p_start_date, 'dd/mm/yyyy'),
+                                                pi_work_date,
+                                                rwd.brwvolumn_no,
+                                                rwd.brwdistype_status,
+                                                rwd.brwreptype_status);
+                End;
+
+                --for dst in dist loop
+                            for x in pnt_cmply (p_start_date, /*dst.dstloc_code, dst.dstgrp, dst.dstdistrict_type,*/ rwd.sclcode, rwd.brwvolumn_no, rwd.brwdistype_status, rwd.brwreptype_status) Loop
+
+                                  v_pk := substr(x.scdcode||'|'||x.brdreward_level||'|'||p_lastdate||'|'||p_year||'|'||x.dstgrp, 1, 100);
+
+                                Begin
+                                  Insert into sa_point_yearly_mk
+                                            (  spsou_code, spsprogref, spscode, spsseqlevel, spsofyear, spslastdate, spscampaign,
+                                               spsdstgroup, spsaddtmp_pntmis, spsaddtmp_pntfri, spsaddtmp_pntfar, spsaddtmp_pntoth, spsaddtmp_pntttl,
+                                               spsaddtmp_mslmis, spsaddtmp_mslfri, spsaddtmp_mslfar, spsaddtmp_msloth,  spsaddtmp_mslttl,
+                                               spsaddact_pntmis, spsaddact_pntfri, spsaddact_pntfar,  spsaddact_pntoth,
+                                               spsaddact_pntttl,
+                                               spsaddact_mslmis, spsaddact_mslfri, spsaddact_mslfar, spsaddact_msloth,
+                                               spsaddact_mslttl,
+                                               spsusage_pnt, spsusage_msl,
+                                               spsremove_pnt, spsremove_msl,
+                                               --spsadjust_pnt, spsadjust_msl,
+                                               spsexpired_pnt, spsexpired_msl,
+                                               spscre_by, spscre_date, spsprog_id, spsupd_by, spsupd_date, spsredeem_money, spsvolumn_no)
+                                  Values ( x.oucode, pi_prog_id, x.scdcode, x.brdreward_level, p_year, p_lastdate,  p_camp,
+                                               x.dstgrp,  x.add_tmppnt_mis, x.add_tmppnt_fri, x.add_tmppnt_far, x.add_tmppnt_oth,  x.add_tmppnt_ttl,
+                                               x.add_tmpmsl_mis, x.add_tmpmsl_fri,
+                                               x.add_tmpmsl_far,  x.add_tmpmsl_oth, x.add_tmpmsl_ttl,
+                                               x.add_actpnt_mis,   x.add_actpnt_fri,  x.add_actpnt_far,     x.add_actpnt_oth,
+                                               nvl(x.add_actpnt_mis, 0) + nvl( x.add_actpnt_fri,0) + nvl( x.add_actpnt_far,0) + nvl( x.add_actpnt_oth,0),
+                                               x.add_actmsl_mis,  x.add_actmsl_fri, x.add_actmsl_far,  x.add_actmsl_oth,
+                                               nvl(x.add_actmsl_mis, 0) + nvl(x.add_actmsl_fri,0) + nvl( x.add_actmsl_far,0) + nvl( x.add_actmsl_oth,0),
+                                               x.redeem_actpnt,   x.redeem_actmsl,
+                                               x.remove_actpnt,   x.remove_actmsl,
+                                               --x.adjust_actpnt,     x.adjust_actmsl,
+                                               x.expired_actpnt,   x.expired_actmsl,
+                                               pi_user_id, sysdate, pi_prog_id, pi_user_id, sysdate, x.redeem_money, x.volumn_no) ;
+                                Exception when dup_val_on_index then
+                                              Begin
+                                               update sa_point_yearly_mk
+                                                    set spsaddtmp_pntmis = nvl(spsaddtmp_pntmis,0) + nvl(x.add_tmppnt_mis,0),
+                                                          spsaddtmp_pntfri   = nvl(spsaddtmp_pntfri,0) + nvl(x.add_tmppnt_fri,0),
+                                                          spsaddtmp_pntfar =  nvl(spsaddtmp_pntfar,0) + nvl(x.add_tmppnt_far,0),
+                                                          spsaddtmp_pntoth = nvl(spsaddtmp_pntoth,0) + nvl(x.add_tmppnt_oth,0),
+                                                          spsaddtmp_pntttl   = nvl(spsaddtmp_pntttl,0) + nvl(x.add_tmppnt_ttl,0),
+                                                          spsaddtmp_mslmis =  nvl(spsaddtmp_mslmis,0) + nvl(x.add_tmpmsl_mis,0),
+                                                          spsaddtmp_mslfri   =  nvl(spsaddtmp_mslfri,0) + nvl(x.add_tmpmsl_fri,0),
+                                                          spsaddtmp_mslfar  =  nvl(spsaddtmp_mslfar,0) + nvl(x.add_tmpmsl_far,0),
+                                                          spsaddtmp_msloth  =  nvl(spsaddtmp_msloth,0) + nvl(x.add_tmpmsl_oth,0),
+                                                          spsaddtmp_mslttl   =   nvl(spsaddtmp_mslttl,0) + nvl(x.add_tmpmsl_ttl,0),
+                                                          spsaddact_pntmis   =  nvl(spsaddact_pntmis,0) + nvl( x.add_actpnt_mis,0),
+                                                          spsaddact_pntfri     =   nvl(spsaddact_pntfri,0) + nvl(x.add_actpnt_fri,0),
+                                                          spsaddact_pntfar    =   nvl(spsaddact_pntfar,0) + nvl(x.add_actpnt_far,0),
+                                                          spsaddact_pntoth   =   nvl(spsaddact_pntoth,0) + nvl(x.add_actpnt_oth,0),
+                                                          spsaddact_pntttl     =   nvl(spsaddact_pntttl ,0) +
+                                                                                                   ( nvl(x.add_actpnt_mis, 0) + nvl( x.add_actpnt_fri,0) + nvl( x.add_actpnt_far,0) + nvl( x.add_actpnt_oth,0) ),
+                                                          spsaddact_mslmis  =  nvl(spsaddact_mslmis ,0) + nvl(x.add_actmsl_mis,0),
+                                                          spsaddact_mslfri    =  nvl(spsaddact_mslfri,0) + nvl(x.add_actmsl_fri,0),
+                                                          spsaddact_mslfar   =  nvl(spsaddact_mslfar,0) + nvl(x.add_actmsl_far,0),
+                                                          spsaddact_msloth   = nvl(spsaddact_msloth,0) + nvl(x.add_actmsl_oth,0),
+                                                          spsaddact_mslttl     = nvl(spsaddact_mslttl,0) +
+                                                                                                  ( nvl(x.add_actmsl_mis, 0) + nvl(x.add_actmsl_fri,0) + nvl( x.add_actmsl_far,0) + nvl( x.add_actmsl_oth,0) ),
+                                                          spsusage_pnt         =   nvl(spsusage_pnt,0) + nvl(x.redeem_actpnt,0),
+                                                          spsusage_msl         =  nvl(spsusage_msl,0) + nvl( x.redeem_actmsl,0),
+                                                          spsremove_pnt       =  nvl(spsremove_pnt,0) + nvl(x.remove_actpnt,0),
+                                                          spsremove_msl      =  nvl(spsremove_msl,0) + nvl( x.remove_actmsl,0),
+                                                          spsexpired_pnt       = nvl(spsexpired_pnt,0) + nvl(x.expired_actpnt,0),
+                                                          spsexpired_msl       = nvl(spsexpired_msl,0) + nvl(x.expired_actmsl,0),
+                                                          spsprog_id             = pi_prog_id,
+                                                          spsupd_by              = pi_user_id,
+                                                          spsupd_date           = sysdate
+                                                where spsou_code    = x.oucode
+                                                    and spsprogref     = pi_prog_id
+                                                    and spscode         = x.scdcode
+                                                    and spsseqlevel    = x.brdreward_level
+                                                    and spsofyear    = p_year
+                                                    and spslastdate    = p_lastdate
+                                                    and spscampaign  = p_camp
+                                                    and spsredeem_money = x.redeem_money
+                                                    and spsdstgroup   = x.dstgrp;
+                                              Exception when no_data_found Then null;
+                                              End;
+                                        when others then --dbms_output.put_line(sqlerrm);
+                                                  --v_cnt_error := v_cnt_error+1;
+                                                  po_process_status     := -9;
+                                                  po_error_message := 'Insert : '||substr(sqlerrm,1, 150);
+                                                  pkgsu_jobs.write_to_log (    pi_jobno,
+                                                                                          'ERR',
+                                                                                          po_error_message,
+                                                                                          'Update Point Campaignly',
+                                                                                          sysdate,
+                                                                                          sysdate,
+                                                                                          v_pk,
+                                                                                          pi_jobno,
+                                                                                          pi_user_id,
+                                                                                          pi_prog_id);
+                                End;
+
+                                commit;
+
+                                --- find Balance of Level ---
+                                Begin
+                               select /* +parallel (pnt, 2)*/
+                                          count(distinct pnt.optrep_seq) cntmsl,
+                                          sum(pnt.optact_point_bal) sumpnt,
+                                          count(distinct decode(nvl(sign(pntm.adjust_actpt),0), 0, null, pnt.optrep_seq)) adjust_actmsl,
+                                          sum(pntm.adjust_actpt) adjust_actpt
+                                    into  p_bal_msl,
+                                              p_bal_point,
+                                              p_adj_msl,
+                                              p_adj_point
+                                 from om_transaction_pnt pnt, sa_point_cmply_tmp_mk pntm
+                                where pnt.optou_code             = pi_ou_code
+                                  and pnt.optpoint_prog_type   = 'B'
+                                  and pnt.optou_code              = pntm.optou_code
+                                  and pnt.optrep_seq               = pntm.optrep_seq
+                                  and pnt.optline_seq              = pntm.pntmax
+                                  and pnt.optact_point_bal between nvl(x.snum,0) and nvl(x.enum, 999999999);
+
+                                    Exception when no_data_found then p_bal_point := 0; p_bal_msl := 0;
+                                End;
+
+                                Begin
+                                select 'x'
+                                   into v_tmp
+                                  from sa_point_yearly_mk
+                                where spsou_code        = x.oucode
+                                    and spsprogref         = pi_prog_id
+                                    and spscode             = x.scdcode
+                                    and spsseqlevel        = x.brdreward_level
+                                    and spsofyear           = p_year
+                                    and spslastdate        = p_lastdate
+                                    and spscampaign      = p_camp
+                                    and spsredeem_money = x.redeem_money
+                                    and spsdstgroup        = x.dstgrp;
+                                                ------- ###################### ---------
+                                               Begin
+                                               Update sa_point_yearly_mk
+                                                    set  spsadjust_pnt    = nvl(spsadjust_pnt,0) + nvl(p_adj_point,0),
+                                                          spsadjust_msl   = nvl(spsadjust_msl,0) + nvl(p_adj_msl,0),
+                                                          spsbalance_pnt  = nvl(spsbalance_pnt,0) + nvl(p_bal_point,0),
+                                                          spsbalance_msl  = nvl(spsbalance_msl,0) + nvl(p_bal_msl,0),
+                                                          spsprog_id         = 'UPDBAL',
+                                                          spsupd_date       = sysdate
+                                                where spsou_code        = x.oucode
+                                                    and spsprogref         = pi_prog_id
+                                                    and spscode             = x.scdcode
+                                                    and spsseqlevel        = x.brdreward_level
+                                                    and spsofyear           = p_year
+                                                    and spslastdate        = p_lastdate
+                                                    and spscampaign      = p_camp
+                                                    and spsredeem_money = x.redeem_money
+                                                    and spsdstgroup       = x.dstgrp;
+                                                End;
+                                                ------- ###################### ---------
+                                Exception when no_data_found Then null;
+                                               Begin
+                                               Insert into sa_point_yearly_mk
+                                                    (spsou_code, spsprogref, spscode, spsseqlevel, spsofyear, spslastdate, spscampaign,
+                                                      spsdstgroup, spsbalance_pnt, spsbalance_msl,
+                                                      spsadjust_pnt, spsadjust_msl,
+                                                      spscre_by, spscre_date, spsprog_id, spsupd_by, spsupd_date,  spsredeem_money, spsvolumn_no)
+                                               Values
+                                                    (  x.oucode, pi_prog_id,  x.scdcode, x.brdreward_level, p_year, p_lastdate, p_camp,
+                                                       x.dstgrp,  p_bal_point, p_bal_msl,
+                                                       p_adj_point, p_adj_msl,
+                                                       pi_user_id, sysdate, pi_prog_id, pi_user_id, sysdate, x.redeem_money, x.volumn_no);
+                                               Exception when dup_val_on_index then null;
+                                               End;
+                                End;
+
+                                commit;
+
+                            End Loop;  --- point
+                    --End Loop; --- district;
+                    commit;
+            End Loop;
+            e_date := sysdate;
+
+            pkgsu_jobs.write_monitor(pi_jobno, p_lastdate, 'Complete : BPR Yearly', s_date, e_date, 1, 0, 'Process', 'C',  pi_user_id, sysdate, pi_prog_id);
+
+       end if;
+
+  END Update_Point_Campaignly;
+
+  Procedure Prepare_Rep_byDate  (p_ou_code    in  om_bal_campest.dslou_code%type,
+                                                      p_start_date in varchar2,
+                                                      p_end_date  in varchar2,
+                                                      p_volumn    db_bpr_reward_hdr.brwvolumn_no%type,
+                                                      p_disttype  db_bpr_reward_hdr.brwdistype_status%type,
+                                                      p_reptype   db_bpr_reward_hdr.brwreptype_status%type) is
+  Begin
+        Begin 
+            Insert Into sa_point_daily_byrep
+            select  /* +parallel (opt, 4)*/
+                             optou_code oucode, p_volumn brdvolumn_no, 11 dstsales_group, optupd_rep_code repseq, opttrans_date pntdate,
+                             optrefer_bill_code, nvl(brdredeem_point,0) brdredeem_point, nvl(brdredeem_money,0) brdredeem_money,
+                             sum( case when optpnt_type in ('V', 'I', 'O') and optbrand_code = '1' then nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0) end) add_tmppnt_mis,
+                             count( distinct case when optpnt_type in ('V', 'I', 'O') and optbrand_code = '1' and (nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0)) > 0 then optupd_rep_code end) add_tmpmsl_mis,
+                             sum( case when optpnt_type in ('V', 'I', 'O') and optbrand_code = '2' then nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0) end) add_tmppnt_fri,
+                             count( distinct case when optpnt_type in ('V', 'I', 'O') and optbrand_code = '2' and (nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0)) > 0 then optupd_rep_code end) add_tmpmsl_fri,
+                             sum( case when optpnt_type in ('V', 'I', 'O') and optbrand_code = '3' then nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0) end) add_tmppnt_far,
+                             count( distinct case when optpnt_type in ('V', 'I', 'O') and optbrand_code = '3' and (nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0)) > 0 then optupd_rep_code end) add_tmpmsl_far,
+                             sum( case when optpnt_type in ('V', 'I', 'O') and optbrand_code not in ('1', '2', '3') then nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0) end) add_tmppnt_oth,
+                             count( distinct case when optpnt_type in ('V', 'I', 'O') and optbrand_code not in ('1', '2', '3') and (nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0)) > 0 then optupd_rep_code end) add_tmpmsl_oth,
+                             ----------
+                             sum( case when optpnt_type in ('V', 'I', 'O')  then nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0) end) add_tmppnt_ttl,
+                             count( distinct case when optpnt_type in ('V', 'I', 'O') and (nvl(opttmp_point_in, 0) - nvl(opttmp_point_out, 0)) > 0 then optupd_rep_code end) add_tmpmsl_ttl,
+                             -----------
+                             sum( case when optpnt_type in ('P', 'I', 'O')  and optbrand_code = '1' and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0 then nvl(optact_point_in, 0) - nvl(optact_point_out, 0) end) add_actpnt_mis,
+                             count( distinct case when optpnt_type in ('P', 'I', 'O')  and optbrand_code = '1' and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0  then optupd_rep_code end) add_actmsl_mis,
+                             sum( case when optpnt_type in ('P', 'I', 'O')  and optbrand_code = '2' and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0 then nvl(optact_point_in, 0) - nvl(optact_point_out, 0) end) add_actpnt_fri,
+                             count( distinct case when optpnt_type in ('P', 'I', 'O')  and optbrand_code = '2' and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0  then optupd_rep_code end) add_actmsl_fri,
+                             sum( case when optpnt_type in ('P', 'I', 'O')  and optbrand_code = '3' and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0 then nvl(optact_point_in, 0) - nvl(optact_point_out, 0) end) add_actpnt_far,
+                             count( distinct case when optpnt_type in ('P', 'I', 'O')  and optbrand_code = '3' and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0  then optupd_rep_code end) add_actmsl_far,
+                             sum( case when optpnt_type in ('P', 'I', 'O')  and optbrand_code not in ('1', '2', '3') and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0  then nvl(optact_point_in, 0) - nvl(optact_point_out, 0) end) add_actpnt_oth,
+                             count( distinct case when optpnt_type in ('P', 'I', 'O')  and optbrand_code not in ('1', '2', '3') and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0  then optupd_rep_code end) add_actmsl_oth,
+                             --------
+                             sum( case when optpnt_type in ('P', 'I', 'O')  and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0 then nvl(optact_point_in, 0) - nvl(optact_point_out, 0) end) add_actpnt_ttl,
+                             count( distinct case when optpnt_type in ('P', 'I', 'O')  and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0  then optupd_rep_code end) add_actmsl_ttl,
+                             --------
+                             sum( case when optpnt_type = 'R' and optrefer_bill_code is not null and (nvl(optact_point_out, 0) - nvl(optact_point_in, 0)) > 0 then nvl(optact_point_out, 0) - nvl(optact_point_in, 0) end) -
+                             nvl(sum( case when optpnt_type = 'C' and optrefer_bill_code is not null and (nvl(optact_point_in, 0) - nvl(optact_point_out, 0)) > 0 then nvl(optact_point_in, 0) - nvl(optact_point_out, 0) end),0) redeem_actpnt,
+                             count( distinct case when optpnt_type = 'R' and (nvl(optact_point_out, 0) - nvl(optact_point_in, 0)) > 0  then optupd_rep_code end) redeem_actmsl,
+                             sum( case when optpnt_type = 'M' and (nvl(optact_point_out, 0) - nvl(optact_point_in, 0)) > 0 then nvl(optact_point_out, 0) - nvl(optact_point_in, 0) end) remove_actpnt,
+                             count( distinct case when optpnt_type = 'M' and (nvl(optact_point_out, 0) - nvl(optact_point_in, 0)) > 0  then optupd_rep_code end) remove_actmsl,
+                             sum( case when  optpnt_type = 'E' and (nvl(optact_point_out, 0) - nvl(optact_point_in, 0)) > 0 then nvl(optact_point_out, 0) - nvl(optact_point_in, 0) end) expired_actpnt,
+                             count( distinct case when optpnt_type = 'E' and (nvl(optact_point_out, 0) - nvl(optact_point_in, 0)) > 0  then optupd_rep_code end) expired_actmsl
+                     from om_transaction_pnt opt,
+                           (select distinct c.brtou_code,null brdvolumn_no,c.brtbill_code,b.brdredeem_point,b.brdredeem_money
+                            from db_bpr_reward_hdr a
+                            inner join db_bpr_reward_dtl b on
+                                a.brwou_code=b.brdou_code
+                                and a.brwvolumn_no=b.brdvolumn_no
+                            inner join db_bpr_reward_itm c on
+                                a.brwou_code=c.brtou_code
+                                and b.brdvolumn_no=c.brtvolumn_no
+                                and b.brdline_seq=c.brtline_seq
+                            where a.brwou_code=p_ou_code
+                                and substr(a.brweff_scampaign,3,4)=substr(a.brweff_ecampaign,3,4)
+                                and substr(a.brweff_scampaign,3,4)=to_char(to_date(p_start_date, 'dd/mm/yyyy'),'rrrr')
+                                and a.brweff_scampaign=c.brtbill_campaign
+                            order by c.brtou_code,brdvolumn_no,c.brtbill_code,b.brdredeem_point,b.brdredeem_money) itm
+                    where optou_code            = p_ou_code
+                      and optpoint_prog_type    = 'B'
+                      and trunc(opttrans_date) >= trunc(to_date(p_start_date, 'dd/mm/yyyy'))
+                      and trunc(opttrans_date) <= trunc(to_date(p_end_date, 'dd/mm/yyyy'))
+                      and optou_code            = itm.brtou_code(+)
+                      and optrefer_bill_code    = itm.brtbill_code(+)
+                      and optrefer_redeem_price = itm.brdredeem_money(+)
+                    group by optou_code , p_volumn, optupd_rep_code, opttrans_date, optrefer_bill_code, nvl(brdredeem_point,0), nvl(brdredeem_money,0)
+                    ;
+        End;
+        
+  END Prepare_Rep_byDate;
+
+END PKGBW_Update_BPR2;
+/
+
+
+/*
+declare
+    v_date_s varchar2(20) := '01/02/2014';
+    v_date_e varchar2(20) := '05/02/2014';
+begin
+    
+    insert into perapong.zp_debug values('cal_bpr_camp',1,'start',v_date_s,v_date_e,sysdate);
+    commit;
+
+  PKGBW_Update_BPR2.Prepare_Rep_byDate  ('000',to_date(v_date_s,'dd/mm/rrrr'),to_date(v_date_e,'dd/mm/rrrr'),null,null,null);
+  
+    insert into perapong.zp_debug values('cal_bpr_camp',2,'finish',v_date_s,v_date_e,sysdate);
+    commit;
+    
+end;
+
+--select * from perapong.zp_debug

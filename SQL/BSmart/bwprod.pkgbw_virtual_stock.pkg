@@ -1,0 +1,572 @@
+CREATE OR REPLACE PACKAGE PKGBW_VIRTUAL_STOCK  IS
+--
+
+--
+-- Golbal Package variable
+--
+   GlbCurrCamp         VARCHAR2(6) := pkgdb_desc.getcurrent_campaign;
+--
+--
+procedure Write_LogErr (Parm_txt VARCHAR2) ;
+--
+Function Get_LocByRepSeq(Parm_OuCOde VARCHAR2, Parm_RepSeq  NUMBER ) return VARCHAR2 ;
+Function Get_FsCodeVirtual ( Parm_FsCode   VARCHAR2 ) return  VARCHAR2 ;
+Function Get_FsCodeVirtual ( Parm_OuCode VARCHAR2, Parm_Campaign VARCHAR2, Parm_FsCode VARCHAR2, Parm_Unit NUMBER, Parm_Event VARCHAR2, Parm_UnitType VARCHAR2) Return Number;
+Function Get_Bill_Virtual ( Parm_OuCode  VARCHAR2,Parm_BillCamp VARCHAR2, Parm_BillCode  VARCHAR2 )  Return  VARCHAR2;
+Function Get_MailGroup (Parm_OuCOde      VARCHAR2 , Parm_CurrCamp  VARCHAR2 , Parm_LocCode VARCHAR2) Return VARCHAR2 ;
+Function Get_CurrentMailGroup (Parm_OuCOde  VARCHAR2, Parm_WorkIngDate DATE )  Return VARCHAR2 ;
+Function Get_Booking_MailGroup(Parm_OuCOde VARCHAR2, Parm_CurrCamp VARCHAR2 ,Parm_LocCode VARCHAR2)  Return VARCHAR2;
+
+Function Get_QtyShortLimit(Parm_OuCOde    VARCHAR2 , Parm_BillCamp  VARCHAR2 , Parm_FsCode  VARCHAR2 , Parm_WorkIngDate DATE )  return  number;
+Function Get_Virtual_ForSale(Parm_OuCOde VARCHAR2  , Parm_BillCamp  VARCHAR2 ,Parm_billcode  VARCHAR2) Return NUMBER ;
+Function Get_FsOnHand  (Parm_OuCOde    VARCHAR2 , Parm_fscode    VARCHAR2 )  Return  NUMBER ;
+Function Get_Virtual_Booking (Parm_OuCOde  VARCHAR2 , Parm_CurrMailGrp   VARCHAR2 , Parm_YearCamp  VARCHAR2 , Parm_fscode VARCHAR2 )  return  number;
+Function Get_Virtual_OrdBooking (Parm_OuCOde  VARCHAR2 , Parm_CurrMailGrp   VARCHAR2 , Parm_YearCamp VARCHAR2 , Parm_fscode VARCHAR2 )  return  number;
+
+Procedure Auto_UpdateVirtual_Flag (Parm_OuCode  VARCHAR2,Parm_BillCamp VARCHAR2, Parm_BillCode  VARCHAR2 ) ;
+
+
+Function Upd_OrderBooking( Parm_OuCOde    VARCHAR2, Parm_CurrCamp   VARCHAR2, Parm_LocCode  VARCHAR2,
+                           Parm_BillCamp  VARCHAR2, Parm_BillCode   VARCHAR2, Parm_OrderQty NUMBER, Parm_event  VARCHAR2)  return  number;
+
+Function Upd_ReverseBooking( Parm_OuCOde  VARCHAR2 ,Parm_CurrCamp  VARCHAR2 , Parm_LocCode VARCHAR2 , Parm_BillCamp  VARCHAR2 , Parm_BillCode    VARCHAR2 ,
+                                                     Parm_OrderQty    NUMBER, Parm_event  VARCHAR2  )  return  NUMBER  ;
+
+Function TrgUpd_OrderBooking( Parm_OuCOde      VARCHAR2 , Parm_CurrCamp    VARCHAR2 , Parm_LocCode   VARCHAR2 , Parm_BillCamp    VARCHAR2 , Parm_BillCode    VARCHAR2 ,
+                              Parm_OrderQty    NUMBER , Parm_event       VARCHAR2  )  return  number ;
+
+Function Trg_ReverseOrdBooking( Parm_OuCOde      VARCHAR2 , Parm_CurrCamp  VARCHAR2 , Parm_LocCode   VARCHAR2 , Parm_BillCamp    VARCHAR2 , Parm_BillCode    VARCHAR2 ,
+                                Parm_OrderQty    NUMBER , Parm_event       VARCHAR2 )  return  number ;
+END; -- Package spec
+/
+CREATE OR REPLACE PACKAGE BODY PKGBW_VIRTUAL_STOCK  IS
+
+-- Purpose: Briefly explain the functionality of the package body
+--
+-- MODIFICATION HISTORY
+-- Person      Date    Comments
+-- ---------   ------  ------------------------------------------
+   -- Enter procedure, function bodies as shown below
+/* *********************************************************************************************************************** */
+procedure Write_LogErr (Parm_txt VARCHAR2) IS
+   PRAGMA AUTONOMOUS_TRANSACTION;
+   Begin
+      Insert into bw_log_err (Text) values (Parm_txt) ;
+      commit;
+   End ;
+/* *********************************************************************************************************************** */
+ Function Get_LocByRepSeq(Parm_OuCOde VARCHAR2, Parm_RepSeq  NUMBER ) return VARCHAR2 IS
+   vTmp  VARCHAR2(5);
+ begin
+     Begin
+            select rx.REPLOC_CODE
+               Into vTmp
+            from MS_REPRESENTATIVE rx
+            where rx.REPOU_CODE = Parm_OuCOde
+             and rx.REPREP_SEQ  = Parm_RepSeq ;
+         Exception When no_data_found Then  vTmp := '0001' ;
+         End ;
+        return (vTmp);
+ End  Get_LocByRepSeq;
+/* *********************************************************************************************************************** */
+ Function  Get_FsCodeVirtual( Parm_FsCode  VARCHAR2 ) return  VARCHAR2  IS
+    vChkFlag  VARCHAR2(10);
+   begin
+     Begin
+       select  'TRUE' VirtualFlag
+          Into  vChkFlag
+         from DB_PRODUCT_DTLPROP dx
+         where dx.PDTFINISHED_CODE = Parm_FsCode
+           and vtxt5  ='Y' ; ---  VirtualFlag --
+       Exception When no_data_found Then vChkFlag :='FALSE';
+     End;
+     return(vChkFlag);
+   End Get_FsCodeVirtual  ;
+/* *********************************************************************************************************************** */
+Function Get_FsCodeVirtual ( Parm_OuCode VARCHAR2, Parm_Campaign VARCHAR2, Parm_FsCode VARCHAR2, Parm_Unit NUMBER, Parm_Event VARCHAR2, Parm_UnitType VARCHAR2) RETURN NUMBER IS
+    nTmp    NUMBER;
+    nUnit   NUMBER;
+    vERRTxt VARCHAR(1000);
+begin
+    nUnit := Parm_Unit;
+    Begin
+        nTmp := STF_VMGET_BOOKING_FSCODE(Parm_OuCode, Parm_Campaign, Parm_FsCode, nUnit, Parm_Event, vERRTxt, Parm_UnitType);
+    End;
+    return(nTmp);
+End Get_FsCodeVirtual;
+/* *********************************************************************************************************************** */
+ Function Get_Bill_Virtual( Parm_OuCode  VARCHAR2,Parm_BillCamp VARCHAR2, Parm_BillCode  VARCHAR2 ) return  VARCHAR2  IS
+    vChkFlag  VARCHAR2(20);
+   begin
+         Begin
+               select Distinct pkgbw_virtual_stock.Get_FsCodeVirtual(dx.bdtfinished_code) VirtualFlag
+                      Into  vChkFlag
+                    From OM_BILLING_DTL dx
+                     where bdtou_code   = Parm_OuCode
+                       and bdtcampaign  = Parm_BillCamp
+                       and bdtbill_code = Parm_BillCode ;
+                   Exception When no_data_found Then vChkFlag  :='FALSE';
+                                 When TOO_MANY_ROWS Then vChkFlag  :='VALID_VMCODE';
+                 End;
+
+             If vChkFlag  ='VALID_VMCODE'  Then
+                Auto_UpdateVirtual_Flag(Parm_OuCode  ,Parm_BillCamp , Parm_BillCode );
+             End if;
+     return(vChkFlag);
+   End Get_Bill_Virtual ;
+/* *********************************************************************************************************************** */
+ Function Get_MailGroup(Parm_OuCOde    VARCHAR2 , Parm_CurrCamp VARCHAR2 ,Parm_LocCode VARCHAR2)  Return VARCHAR2 is
+     vMailGroup     VARCHAR2(5);
+      CurrMailGrp   VARCHAR2(5) := Get_CurrentMailGroup (Parm_OuCOde , pkgdb_desc.getcurrent_camp_date );
+   Begin
+      Begin
+       select   MDTMAILGROUP
+          Into  vMailGroup
+        from  DB_MAILPLAN_DTL
+        WHERE MDTOU_CODE  = Parm_OuCOde
+          AND MDTLOC_CODE = Parm_LocCode
+          AND MDTCAMPAIGN = Parm_CurrCamp;
+        Exception When no_data_found Then  vMailGroup  := CurrMailGrp ;
+      End;
+        If  vMailGroup < CurrMailGrp  Then
+                vMailGroup := CurrMailGrp;
+    End if;
+     return(vMailGroup);
+   End Get_MailGroup ;
+ /* *********************************************************************************************************************** */
+ Function Get_CurrentMailGroup (Parm_OuCOde    VARCHAR2 , Parm_WorkIngDate  DATE )  Return VARCHAR2 is
+     vMailGrp  VARCHAR2(5);
+    Begin
+        Begin
+                Select  DISTINCT  mplmailgroup
+               Into vMailGrp
+            from  db_mailplan
+            where mplou_code      = Parm_oucode
+                  and mplbilldate = Parm_WorkIngDate ;
+           Exception When no_data_found Then  vMailGrp := '01';
+        End ;
+        return(vMailGrp);
+    End Get_CurrentMailGroup;
+/* *********************************************************************************************************************** */
+ Function Get_Booking_MailGroup(Parm_OuCOde VARCHAR2, Parm_CurrCamp VARCHAR2 ,Parm_LocCode VARCHAR2)  Return VARCHAR2 is
+     vMailGroup     VARCHAR2(5);
+      CurrMailGrp   VARCHAR2(5) := Get_CurrentMailGroup (Parm_OuCOde , pkgdb_desc.getcurrent_camp_date );
+   Begin
+      Begin
+       select   MDTMAILGROUP
+          Into  vMailGroup
+        from  DB_MAILPLAN_DTL
+        WHERE MDTOU_CODE  = Parm_OuCOde
+          AND MDTLOC_CODE = Parm_LocCode
+          AND MDTCAMPAIGN = Parm_CurrCamp;
+        Exception When no_data_found Then  vMailGroup  := CurrMailGrp ;
+      End;
+        If  vMailGroup < CurrMailGrp  Then
+                vMailGroup := CurrMailGrp;
+    End if;
+     return(vMailGroup);
+   End Get_Booking_MailGroup ;
+/* *********************************************************************************************************************** */
+ Function Get_QtyShortLimit(Parm_OuCOde    VARCHAR2 , Parm_BillCamp  VARCHAR2 , Parm_FsCode  VARCHAR2 , Parm_WorkIngDate DATE )  return  number is
+
+     Cursor RecShort  (Parm_WorkDate DATE)  Is
+            SELECT /*+ first_rows(100) */
+                      shdbill_campaign bill_camp ,shdbill_code bill_code , shdfinished_code fs_code ,shdshort_limit short_limit
+             FROM om_short_dtl dx
+            WHERE shdou_code      = Parm_OuCode
+             AND shdbill_campaign = Parm_BillCamp
+             AND Parm_WorkDate  between  shdeffdtl_sdate and  nvl(shdeffdtl_edate, to_date('31/12/9999','dd/mm/rrrr'))
+             and shdfinished_code = Parm_FsCode ;
+
+     Trec     RecShort%Rowtype;
+     nShort   number(10);
+
+   Begin
+        Open RecShort ( Parm_WorkIngDate  ) ;
+         Fetch RecShort Into Trec ;
+         If RecShort%found Then
+              Loop
+                nShort := nvl(nShort,0)+ nvl(Trec.short_limit,0);
+                    Fetch RecShort Into Trec ;
+                   Exit When RecShort%notfound ;
+              End Loop;
+         End if;
+        Close RecShort;
+      return(nShort);
+   End Get_QtyShortLimit;
+/* *********************************************************************************************************************** */
+ Function Get_Virtual_ForSale(Parm_OuCOde    VARCHAR2 ,
+                              Parm_BillCamp  VARCHAR2 ,
+                              Parm_billcode  VARCHAR2 )  return  number is
+   Begin
+      return(0);
+   End Get_Virtual_ForSale;
+/* *********************************************************************************************************************** */
+ Function Get_FsOnHand (Parm_OuCOde    VARCHAR2 , Parm_fscode    VARCHAR2 )  return  NUMBER is
+    nTmp NUMBER;
+        Begin
+           Begin
+             select  sum(lohttl_unit) TTL_UNIT
+               Into nTmp
+            from wh_loc_onhand
+            Where lohou_code = Parm_OuCOde
+              and exists (select 'TRUE' from bw_def$sys where parm_key ='WAREHOUSE_VIRTUAL' and vartxt1 = lohwh_code)
+              and lohfinished_code = Parm_fscode;
+           End;
+           If nvl(nTmp,0)<0 Then
+             nTmp := 0;
+           End if;
+          return(nTmp);
+        End Get_FsOnHand ;
+/* *********************************************************************************************************************** */
+ Function Get_Virtual_Booking (Parm_OuCOde  VARCHAR2 , Parm_CurrMailGrp   VARCHAR2 , Parm_YearCamp VARCHAR2 , Parm_fscode VARCHAR2 )  return  number is
+   nTolPCsBook  NUMBER;
+   CurrMailGrp   VARCHAR2(5) := Get_CurrentMailGroup (Parm_OuCOde , pkgdb_desc.getcurrent_camp_date );
+   Begin
+           Begin
+                    select sum(booking_unit) unit_booking
+                           into nTolPCsBook
+                        from wh_vmstock_bal dx
+                        where dx.ou_code    = Parm_OuCOde
+                          and dx.yearcamp||dx.mailgrp  >= Parm_YearCamp||CurrMailGrp
+                          and dx.fs_code    = Parm_fscode ;
+           End ;
+            If nvl(nTolPCsBook,0) < 0 Then
+               nTolPCsBook :=0;
+           End if;
+      return(nvl(nTolPCsBook,0));
+   End Get_Virtual_Booking ;
+/* *********************************************************************************************************************** */
+ Function Get_Virtual_OrdBooking (Parm_OuCOde  VARCHAR2 , Parm_CurrMailGrp   VARCHAR2 , Parm_YearCamp VARCHAR2 , Parm_fscode VARCHAR2 )  return  number is
+   nTolPCsBook  NUMBER;
+   CurrMailGrp   VARCHAR2(5) := Get_CurrentMailGroup (Parm_OuCOde , pkgdb_desc.getcurrent_camp_date );
+   Begin
+           Begin
+                    select sum(booking_unit) unit_booking
+                           into nTolPCsBook
+                        from wh_vmorder_fsbooking dx
+                        where dx.ou_code    = Parm_OuCOde
+                          and dx.yearcamp||dx.mailgrp  >= Parm_YearCamp||CurrMailGrp
+                          and dx.fs_code    = Parm_fscode ;
+           End ;
+            If nvl(nTolPCsBook,0) < 0 Then
+               nTolPCsBook :=0;
+           End if;
+      return(nvl(nTolPCsBook,0));
+   End Get_Virtual_OrdBooking ;
+/* *********************************************************************************************************************** */
+
+Procedure Auto_UpdateVirtual_Flag (Parm_OuCode  VARCHAR2,Parm_BillCamp VARCHAR2, Parm_BillCode  VARCHAR2 ) is
+  PRAGMA AUTONOMOUS_TRANSACTION;
+
+  Begin
+      Begin
+         Update DB_PRODUCT_DTLPROP dx
+           set  vtxt5    = 'Y' ,
+                PROG_ID  = 'PKGBW_VMSTOCK',
+                UPD_BY   = 'AUTO_UPD',
+                UPD_DATE = sysdate
+         where   exists (select 'TRUE'
+                        From  OM_BILLING_DTL bx
+                       where bx.bdtou_code   = Parm_OuCode
+                         and bx.bdtcampaign  = Parm_BillCamp
+                         and bx.bdtbill_code = Parm_BillCode
+                         and bx.bdtfinished_code  = dx.PDTFINISHED_CODE);
+      End ;
+      COMMIT;
+  ENd Auto_UpdateVirtual_Flag ;
+/* *********************************************************************************************************************** */
+ Function Upd_OrderBooking( Parm_OuCOde   VARCHAR2 , Parm_CurrCamp  VARCHAR2 , Parm_LocCode   VARCHAR2 , Parm_BillCamp  VARCHAR2 , Parm_BillCode    VARCHAR2 ,
+                           Parm_OrderQty  NUMBER , Parm_event       VARCHAR2  )  return  number is
+
+PRAGMA AUTONOMOUS_TRANSACTION;
+
+Cursor RecBill Is
+   select /*+FIRST_ROWS(100) */
+             bdtfinished_code fs_code , (bdtunit*Parm_OrderQty) fscode_qty
+        from OM_BILLING_DTL Bx
+        where Bx.bdtou_code   = Parm_OuCOde
+          and Bx.bdtcampaign  = Parm_BillCamp
+          and Bx.bdtbill_code = Parm_BillCode ;
+
+   Trec           RecBill%rowtype;
+   ErrInvalid     NUMBER := 0; -- 0-Success , N-Failure
+   ErrMsg         VARCHAR2(200);
+
+   vCurrMailGrp    VARCHAR2(6);
+   TmpYearcamp     VARCHAR2(10);
+   nQtyShortLimit  NUMBER := 0;
+   nOnHandQty      NUMBER := 0;
+   nUnitBooking    NUMBER := 0;
+   nUnitAvalible   NUMBER := 0;
+   nPcsReverse     NUMBER := 0;
+   vCHk            VARCHAR2(10);
+   /* *************************************************************************************** */
+      Function Lock_Booking (Parm_OuCOde  VARCHAR2 ,Parm_CurrMailGrp varchar2, Parm_YearCamp VARCHAR2 , Parm_fscode VARCHAR2 )  return  number is
+              Cursor CurLockRec  is
+                select  (booking_unit) unit_booking
+                  from wh_vmstock_bal dx
+                 where dx.ou_code    = Parm_OuCOde
+                   and dx.yearcamp||dx.mailgrp  >= Parm_YearCamp||Parm_CurrMailGrp
+                   and dx.fs_code    = Parm_fscode
+                FOR UPDATE OF ou_code ,yearcamp, fs_code NOWAIT;
+
+               nTolPCsBook  NUMBER;
+           Begin
+                  for rex In  CurLockRec  LOOP
+                     nTolPCsBook := nvl(nTolPCsBook,0)+ rex.unit_booking;
+                  End loop;
+                    If nvl(nTolPCsBook,0) < 0 Then
+                       nTolPCsBook :=0;
+                   End if;
+              return(nvl(nTolPCsBook,0));
+           End Lock_Booking ;
+   /* *************************************************************************************** */
+   Begin
+     TmpYearcamp  := Substr(GlbCurrCamp,3,4)||substr(GlbCurrCamp,1,2);
+     vCurrMailGrp := Get_CurrentMailGroup (Parm_OuCOde , pkgdb_desc.getcurrent_camp_date );
+
+    Open  RecBill;
+     Fetch RecBill Into Trec;
+     If RecBill%Found Then
+      Loop
+        nUnitBooking   := Lock_Booking (Parm_OuCOde, vCurrMailGrp,  TmpYearcamp , Trec.fs_code );
+            nOnHandQty := Get_FsOnHand(Parm_OuCode, Trec.fs_code);
+        nUnitAvalible  := nvl(nOnHandQty,0) - nvl(nUnitBooking,0);
+        --
+        -- Check : BOOKING & Reverse Booking
+        --
+         If nUnitAvalible  <= 0 Then
+               nUnitBooking := 0;
+                ErrInvalid  := Parm_OrderQty ;--- Can't booking order
+         ElsIf nUnitAvalible >= Trec.fscode_qty  Then
+               nUnitBooking :=  Trec.fscode_qty ;
+                ErrInvalid  :=  0  ; --- Booking order sucess
+         ElsIf nUnitAvalible < Trec.fscode_qty   Then
+               nUnitBooking :=  nUnitAvalible ;
+                ErrInvalid  := nvl(Trec.fscode_qty,-0)- nvl(nUnitAvalible,0)  ; --- Order n Psc can't Booking order
+         End if;
+        --
+        -- Start Write log order
+        --
+        Begin
+         Insert into wh_vmstock_bill (ou_code, bill_camp, bill_code, mailgrp, order_unit, booking_unit, last_update, txt_event, yearcamp)
+                              Values (Parm_OuCOde, Parm_BillCamp, Parm_BillCode , vCurrMailGrp , Parm_OrderQty, nUnitBooking, sysdate, Parm_event,TmpYearcamp);
+        End;
+        --
+        -- End write log order
+        --
+             Begin
+               Update WH_VMSTOCK_BAL
+               set order_unit   = nvl(order_unit,0)  + (Trec.fscode_qty),
+                   booking_unit = nvl(booking_unit,0)+ nUnitBooking ,
+                   last_update  = sysdate
+                Where ou_code   = Parm_OuCOde
+                  and yearcamp  = TmpYearcamp
+                  and fs_code   = Trec.fs_code
+                  and mailgrp   = vCurrMailGrp ;
+             End ;
+             If SQL%notfound Then
+                Begin
+                      Insert into wh_vmstock_bal (ou_code, bill_camp, fs_code, mailgrp, order_unit, booking_unit,last_update ,yearcamp )
+                          Values (Parm_OuCOde, Parm_BillCamp,Trec.fs_code, vCurrMailGrp , Trec.fscode_qty, nUnitBooking ,sysdate, TmpYearcamp);
+                 End;
+             End if;
+          COMMIT;
+        Fetch RecBill Into Trec;
+       Exit When RecBill%NotFound;
+      End Loop;
+     End if;
+    Close RecBill;
+  COMMIT;
+   Return( ErrInvalid );
+ End Upd_OrderBooking;
+/* *********************************************************************************************************************** */
+Function Upd_ReverseBooking( Parm_OuCOde      VARCHAR2 , Parm_CurrCamp  VARCHAR2 , Parm_LocCode   VARCHAR2 , Parm_BillCamp    VARCHAR2 , Parm_BillCode    VARCHAR2 ,
+                              Parm_OrderQty    NUMBER   , Parm_event   VARCHAR2 )  return  number is
+
+PRAGMA AUTONOMOUS_TRANSACTION;
+
+Cursor RecBill Is
+   select /*+FIRST_ROWS(100) */
+             bdtfinished_code fs_code , (bdtunit*Parm_OrderQty) fscode_qty
+        from OM_BILLING_DTL Bx
+        where Bx.bdtou_code   = Parm_OuCOde
+          and Bx.bdtou_code   = Parm_OuCOde
+          and Bx.bdtcampaign  = Parm_BillCamp
+          and Bx.bdtbill_code = Parm_BillCode ;
+
+   Trec           RecBill%rowtype;
+   ErrInvalid     NUMBER := 0; -- 0-Success , N-Failure
+   ErrMsg         VARCHAR2(200);
+
+   vCurrMailGrp    VARCHAR2(6);
+   TmpYearcamp     VARCHAR2(10);
+   nUnitReverse    NUMBER := 0;
+
+   Begin
+      TmpYearcamp := Substr(GlbCurrCamp,3,4)||substr(GlbCurrCamp,1,2);
+     vCurrMailGrp :=  Get_CurrentMailGroup (Parm_OuCOde , pkgdb_desc.getcurrent_camp_date );
+
+    Open  RecBill;
+     Fetch RecBill Into Trec;
+     If RecBill%Found Then
+        nUnitReverse := (Trec.fscode_qty * -1);
+      Loop
+        -- Start Write log order
+        Begin
+         Insert into wh_vmstock_bill (ou_code, bill_camp, bill_code, mailgrp, order_unit, booking_unit, last_update, txt_event ,yearcamp)
+                              Values (Parm_OuCOde, Parm_BillCamp, Parm_BillCode , vCurrMailGrp , Parm_OrderQty, Parm_OrderQty, sysdate, Parm_event,TmpYearcamp);
+        End;
+        -- End write log order
+            Begin
+             Update WH_VMSTOCK_BAL
+               set order_unit   = nvl(order_unit,0)  + nUnitReverse,
+                   booking_unit = nvl(booking_unit,0)+ nUnitReverse,
+                   last_update  = sysdate
+                Where ou_code   = Parm_OuCOde
+                  and yearcamp  = TmpYearcamp
+                  and fs_code   = Trec.fs_code
+                  and mailgrp   = vCurrMailGrp ;
+               Exception when no_data_found Then null ;
+            End;
+            --
+            If SQL%ROWCOUNT = 0 Then
+               Begin
+                  Insert into wh_vmstock_bal (ou_code, bill_camp, fs_code, mailgrp, order_unit, booking_unit ,last_update ,yearcamp )
+                                      Values (Parm_OuCOde, Parm_BillCamp,Trec.fs_code, vCurrMailGrp , nUnitReverse, nUnitReverse ,sysdate,TmpYearcamp);
+               End;
+            End if;
+        Fetch RecBill Into Trec;
+       Exit When RecBill%NotFound;
+      End Loop;
+
+     End if;
+    Close RecBill;
+  COMMIT;
+ Return( ErrInvalid );
+End Upd_ReverseBooking;
+/* *********************************************************************************************************************** */
+Function TrgUpd_OrderBooking( Parm_OuCOde   VARCHAR2 , Parm_CurrCamp    VARCHAR2 , Parm_LocCode   VARCHAR2 , Parm_BillCamp    VARCHAR2 , Parm_BillCode    VARCHAR2 ,
+                              Parm_OrderQty    NUMBER , Parm_event       VARCHAR2  )  return  number is
+
+Cursor RecBill Is
+   select /*+FIRST_ROWS(100) */
+             bdtfinished_code fs_code , (bdtunit*Parm_OrderQty) fscode_qty
+        from OM_BILLING_DTL Bx
+        where Bx.bdtou_code   = Parm_OuCOde
+          and Bx.bdtou_code   = Parm_OuCOde
+          and Bx.bdtcampaign  = Parm_BillCamp
+          and Bx.bdtbill_code = Parm_BillCode ;
+
+   Trec           RecBill%rowtype;
+   ErrInvalid     NUMBER := 0; -- 0-Success , N-Failure
+   ErrMsg         VARCHAR2(200);
+
+   vCurrMailGrp    VARCHAR2(6);
+   TmpYearcamp     VARCHAR2(10);
+   nUnitAvalible   NUMBER := 0;
+   nPcsReverse     NUMBER := 0;
+   Begin
+   --
+   --Check bill virtual
+   If Get_Bill_Virtual( Parm_OuCode   ,Parm_BillCamp , Parm_BillCode ) ='TRUE' Then
+
+     TmpYearcamp  := Substr(GlbCurrCamp,3,4)||substr(GlbCurrCamp,1,2);
+     vCurrMailGrp := Get_Booking_MailGroup (Parm_OuCOde, Parm_CurrCamp,Parm_LocCode );
+
+    Open  RecBill;
+     Fetch RecBill Into Trec;
+     If RecBill%Found Then
+      Loop
+        nUnitAvalible  := Trec.fscode_qty;
+        --
+            Begin
+             Update WH_VMORDER_FSBOOKING
+               set order_unit   = nvl(order_unit,0)  + nUnitAvalible,
+                   booking_unit = nvl(booking_unit,0)+ nUnitAvalible ,
+                   last_update  = sysdate
+                Where ou_code   = Parm_OuCOde
+                  and yearcamp  = TmpYearcamp
+                  and fs_code   = Trec.fs_code
+                  and mailgrp   = vCurrMailGrp ;
+               Exception when no_data_found Then null ;
+            End;
+            --
+            If SQL%ROWCOUNT = 0 Then
+               Begin
+                   Insert into WH_VMORDER_FSBOOKING (ou_code, bill_camp , fs_code, mailgrp, order_unit, booking_unit,last_update ,yearcamp )
+                                            Values (Parm_OuCOde, Parm_BillCamp,Trec.fs_code, vCurrMailGrp , nUnitAvalible , nUnitAvalible ,sysdate, TmpYearcamp);
+               End;
+            End if;
+            --
+        Fetch RecBill Into Trec;
+       Exit When RecBill%NotFound;
+      End Loop;
+     End if;
+    Close RecBill;
+  End if;
+   Return( ErrInvalid );
+ End TrgUpd_OrderBooking ;
+/* *********************************************************************************************************************** */
+Function Trg_ReverseOrdBooking( Parm_OuCOde VARCHAR2 , Parm_CurrCamp    VARCHAR2 , Parm_LocCode VARCHAR2 , Parm_BillCamp    VARCHAR2 , Parm_BillCode    VARCHAR2 ,
+                                Parm_OrderQty    NUMBER , Parm_event       VARCHAR2  )  return  number is
+
+Cursor RecBill Is
+   select /*+FIRST_ROWS(100) */
+             bdtfinished_code fs_code , (bdtunit*Parm_OrderQty) fscode_qty
+        from OM_BILLING_DTL Bx
+        where Bx.bdtou_code   = Parm_OuCOde
+          and Bx.bdtou_code   = Parm_OuCOde
+          and Bx.bdtcampaign  = Parm_BillCamp
+          and Bx.bdtbill_code = Parm_BillCode ;
+
+   Trec           RecBill%rowtype;
+   ErrInvalid     NUMBER := 0; -- 0-Success , N-Failure
+   ErrMsg         VARCHAR2(200);
+   vCurrMailGrp    VARCHAR2(6);
+   TmpYearcamp     VARCHAR2(10);
+   nPcsReverse     NUMBER := 0;
+
+   Begin
+   --
+   --Check bill virtual
+   If Get_Bill_Virtual( Parm_OuCode   ,Parm_BillCamp , Parm_BillCode ) ='TRUE' Then
+     TmpYearcamp  := Substr(GlbCurrCamp,3,4)||substr(GlbCurrCamp,1,2);
+     vCurrMailGrp :=  Get_Booking_MailGroup (Parm_OuCOde,Parm_CurrCamp,Parm_LocCode );
+    Open  RecBill;
+     Fetch RecBill Into Trec;
+     If RecBill%Found Then
+      Loop
+        nPcsReverse := Trec.fscode_qty * -1;
+            Begin
+             Update WH_VMORDER_FSBOOKING
+               set order_unit   = nvl(order_unit,0)  + nPcsReverse,
+                   booking_unit = nvl(booking_unit,0)+ nPcsReverse ,
+                   last_update  = sysdate
+                Where ou_code   = Parm_OuCOde
+                  and yearcamp  = TmpYearcamp
+                  and fs_code   = Trec.fs_code
+                  and mailgrp   = vCurrMailGrp ;
+               Exception when no_data_found Then null ;
+            End;
+            --
+            If SQL%ROWCOUNT = 0 Then
+               Begin
+                  Insert into WH_VMORDER_FSBOOKING (ou_code,bill_camp, fs_code, mailgrp, order_unit, booking_unit,last_update ,yearcamp )
+                                            Values (Parm_OuCOde, Parm_BillCamp,Trec.fs_code, vCurrMailGrp , nPcsReverse , nPcsReverse ,sysdate, TmpYearcamp);
+               End;
+            End if;
+            --
+        Fetch RecBill Into Trec;
+       Exit When RecBill%NotFound;
+      End Loop;
+     End if;
+    Close RecBill;
+   End if;
+  Return( ErrInvalid );
+ End Trg_ReverseOrdBooking ;
+ /* *********************************************************************************************************************** */
+   -- Enter further code below as specified in the Package spec.
+END;
+/

@@ -1,0 +1,1479 @@
+CREATE OR REPLACE PACKAGE "PKGBW_IAVERIFY" IS
+
+/* ***************************************** ****************************************************** ******************************************** */
+Function CvtBirthDate(Parm_BirthDate NUMBER) RETURN DATE ;
+FUNCTION Chk_name_validate  ( Parm_Rec BW_RIREP%ROWTYPE) RETURN VARCHAR2 ;
+Function Get_NextWorkDate return Date ;
+Function Get_WorkDate(Parm_CurrCamp VARCHAR2,Parm_LocCode VARCHAR2, Parm_SendDate DATE) return date ;
+Function Get_CSNoteLasted (Parm_RegNo VARCHAR2, Parm_DelCode VARCHAR2)  RETURN VARCHAR2 ;
+FUNCTION Get_CSNoteLastDate (Parm_RegNo VARCHAR2)  RETURN DATE ;
+Function ValidateIdCard(Parm_Rec BW_RIREP%ROWTYPE) return VARCHAR2;
+
+Function Get_ArDeptAmt(Parm_RepSeq  NUMBER) Return NUMBER ;
+Function CreateLogReject (Parm_RiRec  BW_RIREP%ROWTYPE, Parm_ErrCode VARCHAR2,Parm_Txterr VARCHAR2 DEFAULT NULL ) return VARCHAR2 ;
+Function Chk_PreName(Parm_Rec  BW_RIREP%ROWTYPE)  Return Varchar2 ;
+Function Chk_ApptSource(Parm_Rec  BW_RIREP%ROWTYPE)  Return Varchar2 ;
+Function Chk_Gender (Parm_Rec  BW_RIREP%ROWTYPE)  Return Varchar2 ;
+Function Chk_Marital (Parm_Rec  BW_RIREP%ROWTYPE)  Return Varchar2 ;
+Function Chk_Religious (Parm_Rec  BW_RIREP%ROWTYPE)  Return Varchar2 ;
+Function Chk_RefTypeId (Parm_Rec  BW_RIREP%ROWTYPE)  Return Varchar2 ;
+Function Chk_Birthday (Parm_Rec  BW_RIREP%ROWTYPE)  Return Varchar2 ;
+Function Chk_Idcard (Parm_Rec  BW_RIREP%ROWTYPE)  Return Varchar2;
+Function Chk_Mobile (Parm_Rec  BW_RIREP%ROWTYPE)  Return Varchar2;
+Function Chk_Apptype (Parm_Rec  BW_RIREP%ROWTYPE)  Return Varchar2;
+Function Chk_ApptSourcee (Parm_Rec  BW_RIREP%ROWTYPE) Return Varchar2;
+
+Function Get_ChkErrMaxSeq(Parm_Regno VARCHAR2 ) return number;
+Function Get_RepArBal(Parm_OuCOde VARCHAR2, Parm_RepSeq Number) Return Number;
+Function GetLogerr_MaxSeq(Parm_RegNo VARCHAR2) Return NUMBER ;
+Function Chk_DupName (Parm_Rec  BW_RIREP%ROWTYPE) Return VARCHAR2;
+FUNCTION Chk_DupName_Rein (Parm_Rec  BW_RIREP%ROWTYPE,Parm_DelRep OUT VARCHAR2)  return VARCHAR2 ;
+
+Function Chk_LengthName (Parm_Rec  BW_RIREP%ROWTYPE, Parm_Txt VARCHAR2,  Parm_nLimit NUMBER DEFAULT  50 ) Return VARCHAR2 ;
+Function Chk_dupIdcard (Parm_Rec  BW_RIREP%ROWTYPE) Return VARCHAR2;
+Function Chk_RepType (Parm_Rec  BW_RIREP%ROWTYPE) Return Varchar2;
+Function Chk_ApptCamp (Parm_Rec  BW_RIREP%ROWTYPE) return varchar2;
+Function Chk_BackListName (Parm_Key VARCHAR2, Parm_Txt VARCHAR2 ,Parm_Rec  BW_RIREP%ROWTYPE ) return varchar2;
+Function Gen_ErrDupName ( Parm_Rec  bw_rirep%rowtype , Parm_ErrCode varchar2 )  return varchar2 ;
+Function Gen_ErrDupName ( Parm_RegNo varchar2, Parm_ErrCode varchar2 )  return varchar2 ;
+Function Gen_ErrDupIdCard ( Parm_Rec  BW_RIREP%ROWTYPE , Parm_ErrCode varchar2 )  return varchar2;
+
+Function ValidateRiAddress (Parm_Rec  BW_RIREP%ROWTYPE, Parm_AdrrType VARCHAR2 Default '1') Return VARCHAR2 ;
+Function GetMgrDsm(Parm_LocCode VARCHAR2)  Return VARCHAR2;
+Function getBillDate (Parm_LocCode VARCHAR2 , Parm_CurrCamp VARCHAR2 ) Return DATE;
+Function getShipDate(Parm_LocCode VARCHAR2 , Parm_CurrCamp  VARCHAR2 ) RETURN DATE ;
+Function getNextShipDate(Parm_LocCode VARCHAR2 , Parm_Currdate DATE DEFAULT SYSDATE ) Return DATE;
+Function GetCodeRed(Parm_OuCode VARCHAR2, Parm_LocCode VARCHAR2 ) return VARCHAR2 ;
+
+Function GetPicPath_Default Return VARCHAR2;
+Function GetxDivcode (Parm_LocCode VARCHAR2) return varchar2;
+Function GetxNSMcode (Parm_LocCode VARCHAR2) return varchar2;
+Function GetxDivDesc (Parm_LocCode VARCHAR2) return varchar2;
+Function GetxRepLoc (Parm_DivCode VARCHAR2) return varchar2;
+Function GetReturnText(parm_reg_no bw_rirep.reg_no%TYPE) return varchar2;
+Function GetReturnTextDesc(parm_reg_no bw_rirep.reg_no%TYPE) return varchar2;
+Function GetTabletError (Parm_ErrCode VARCHAR2) return varchar2;
+/* ***************************************** ****************************************************** ******************************************** */
+/* ***************************************** ****************************************************** ******************************************** */
+/* ***************************************** ****************************************************** ******************************************** */
+Procedure Delete_RejectRecord (Parm_OuCode  VARCHAR2 ) ;
+Procedure putMSL_GPS(parm_rep_code bw_rirep.rep_code%TYPE, parm_latitude bw_riaddress.latitude%TYPE, parm_longitude bw_riaddress.longitude%TYPE);
+Procedure UpdateRegStatus(Parm_Rec  BW_RIREP%ROWTYPE);
+
+Procedure RegNoRecValidate (Parm_LocCode VARCHAR2 default NULL , Parm_Regno Varchar2 default NULL );
+Procedure CreateBatcId (Parm_OuCode Varchar2, Parm_LocCode VARCHAR2 default NULL , Parm_Regno Varchar2 default NULL );
+Procedure MainProcedure (Parm_LocCode VARCHAR2 default NULL , Parm_Regno Varchar2 default NULL ) ;
+
+
+END; -- Package spec
+
+/
+CREATE OR REPLACE PACKAGE BODY "PKGBW_IAVERIFY" IS
+
+    Function CvtBirthDate(Parm_BirthDate NUMBER) RETURN DATE IS
+      dBirthDate DATE;
+      vTmp VARCHAR2(10) := LTRIM(to_char(Parm_BirthDate));
+
+      Begin
+       Begin
+         If trim(vTmp) is null Then
+           dBirthDate := NULL;
+         Else
+           dBirthDate :=  substr(vTmp,7,2)||'/'||substr(vTmp,5,2)||'/'|| substr(vTmp,1,4);
+         End if;
+         Exception When Others Then dBirthDate := NULL;
+       End;
+         return(dBirthDate);
+      End CvtBirthDate;
+/* ***************************************** ****************************************************** ******************************************** */
+FUNCTION chk_name_validate  ( Parm_Rec BW_RIREP%ROWTYPE) RETURN VARCHAR2 IS
+
+vTmp      VARCHAR2(10);
+vTmpName  VARCHAR2(200);
+
+BEGIN
+
+   vTmpName := Parm_Rec.FIRST_NAME||Parm_Rec.LAST_NAME;
+
+     If (Ascii(substr(vTmpName,1,1)) between 161 and 207 or
+         Ascii(substr(vTmpName,1,1)) between 224 and 228 ) Then
+
+           If Instr(vTmpName,'(')>0 or instr(vTmpName,'@')>0 or instr(vTmpName,')')>0 or
+              instr(vTmpName,'#')>0  or instr(vTmpName,'&')>0  or instr(vTmpName,'%')>0  or instr(vTmpName,'+')>0 or
+              instr(vTmpName,'!')>0  or instr(vTmpName,'_')>0  or instr(vTmpName,'=')>0  or instr(vTmpName,chr(163))>0 or
+              Length (Parm_Rec.first_name)=1  or Length (Parm_Rec.last_name)=1  then
+
+              vTmp := pkgbw_iaverify.CreateLogReject( Parm_Rec,'0117'); -- Special character found
+           End if;
+
+     ELSE
+         vTmp := pkgbw_iaverify.CreateLogReject( Parm_Rec,'0117'); -- Special character found
+     End if;
+ return('TRUE');
+END chk_name_validate;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Get_NextWorkDate return Date is
+  dWorkDate  DATE;
+Begin
+   begin
+        select Case when to_char( pkgdb_desc.getcurrent_camp_date +1,'D') = 7 Then
+                     pkgdb_desc.getcurrent_camp_date+2
+                else
+                     pkgdb_desc.getcurrent_camp_date+1
+                End  next_workdate
+          Into dWorkDate
+        from dual ;
+   End;
+   return(dWorkDate);
+End Get_NextWorkDate;
+/* ***************************************** ****************************************************** ******************************************** */
+FUNCTION Get_CSNoteLasted (Parm_RegNo VARCHAR2, Parm_DelCode VARCHAR2)  RETURN VARCHAR2 IS
+
+  Cursor rec Is
+SELECT /*+ FIRST_ROWS(10) */
+              Case When rx.validate_check ='9'                    Then  'PASS'
+                  When nvl(source_from||rec_status,'XX01')='XX01' Then  'PROC'
+                  When nvl(source_from||rec_status,'XX01')='CS10' Then  'CSREM'
+                  When nvl(source_from||rec_status,'XX01')='CS20' and cx.note_code = '09998' Then 'CSVOID'
+                  When nvl(source_from||rec_status,'XX01')='CS20' Then  'TODP'
+                  When nvl(source_from||rec_status,'XX01')='CS30' Then  'TODIV'
+                  When nvl(source_from||rec_status,'XX01')='CS40' Then  'DPEDT'
+                  When nvl(source_from||rec_status,'XX01')='CS99' Then  'CSREJ'
+                  When nvl(source_from||rec_status,'XX01')='DP10' Then  'DPREM'
+                  When nvl(source_from||rec_status,'XX01')='DP20' Then  'DPDEL'
+                  When nvl(source_from||rec_status,'XX01')='DI10' Then  'FRMDIV'
+                  When nvl(source_from||rec_status,'XX01')='DI01' Then  'FRMDIV'
+                  When nvl(rx.rep_code,'XX') ='XX' Then 'DPEDT'
+                 Else 'UNKNOW' End Send_to
+   FROM Bw_rirep rx, bw_ri_csnote cx
+    where rx.reg_no = cx.reg_no(+)
+      and rx.reg_no = Parm_RegNo
+   order  by CX.cre_date desc ;
+
+   vTmp VARCHAR2(10);
+   Trx  rec%rowtype;
+
+BEGIN
+
+     Open Rec ;
+      Fetch Rec Into Trx;
+       If Rec%Found Then
+        vTmp := Trx.Send_to;
+         if nvl(Parm_DelCode,'0') !='0' and vTmp  = 'TODP' Then
+            vTmp := 'TODPDEL';
+         End if;
+       else
+         vTmp := 'PASS';
+       End if;
+     Close Rec;
+
+   return(vTmp);
+END Get_CSNoteLasted;
+/* ***************************************** ****************************************************** ******************************************** */
+FUNCTION Get_CSNoteLastDate (Parm_RegNo VARCHAR2)  RETURN DATE IS
+    nDate DATE;
+
+BEGIN
+    Begin
+        select max(cre_date)
+        Into nDate
+        from bw_ri_csnote
+        where  reg_no = Parm_RegNo;
+        Exception When no_data_found Then nDate := null;
+    End ;
+    Return(nDate);
+END Get_CSNoteLastDate;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Get_WorkDate(Parm_CurrCamp VARCHAR2,Parm_LocCode VARCHAR2, Parm_SendDate DATE) return date is
+
+Cursor Rec Is
+    select  case When trunc( Parm_SendDate )  > ShipDate Then pkgdb_desc.getcurrent_camp_date
+                 When trunc( Parm_SendDate )  = ShipDate Then pkgbw_iaverify.Get_NextWorkDate
+                 when Parm_SendDate <= to_date(to_char(billdate,'dd/mm/rrrr')||' 17:00:00','dd/mm/rrrr hh24:mi:ss') Then trunc(Parm_SendDate)
+                 When Parm_SendDate  > to_date(to_char(billdate,'dd/mm/rrrr')||' 17:00:00','dd/mm/rrrr hh24:mi:ss') Then pkgbw_iaverify.Get_NextWorkDate End Work_Date
+     from bev$_mailplan mx
+    where mx.mplcampaign = Parm_CurrCamp
+      and mx.loc_code    = Parm_LocCode;
+
+   Trec  Rec%rowtype;
+   dTmp  DATE;
+Begin
+   Open Rec;
+     Fetch rec Into Trec;
+       dTmp := Trec.Work_Date;
+   Close Rec;
+   return(dTmp);
+End Get_WorkDate;
+/* ***************************************** ****************************************************** ******************************************** */
+Function ValidateIdCard(Parm_Rec BW_RIREP%ROWTYPE) return VARCHAR2 IS
+     TLogId    BW_RICHK_PROFILE%ROWTYPE;
+     vTmp      VARCHAR2(10);
+     /* ++++++++++++++++++++++++++ ++++++++++++++++++++++ +++++++++++++++++++++++++ */
+     Function CheckDigitIdCard(Parm_IdCard VARCHAR2) return VARCHAR2 IS
+
+     Digi1 Number ;
+     Digi2 Number(3);
+     Digi3 Number(3);
+     Digi4 Number(3);
+     Digi5 Number(3);
+     Digi6 Number(3);
+     Digi7 Number(3);
+     Digi8 Number(3);
+     Digi9 Number(3);
+     Digi10 Number(3);
+     Digi11 Number(3);
+     Digi12 Number(3);
+     Digi13 Number(3);
+     ChkDigit  NUMBER(3);
+     vTmp1 VARCHAR2(10);
+
+    Begin
+
+               Digi1  := to_number(substr(Parm_IdCard,1,1)*13);
+               Digi2  := to_number(substr(Parm_IdCard,2,1)*12);
+               Digi3  := to_number(substr(Parm_IdCard,3,1)*11);
+               Digi4  := to_number(substr(Parm_IdCard,4,1)*10);
+               Digi5  := to_number(substr(Parm_IdCard,5,1)*9);
+               Digi6  := to_number(substr(Parm_IdCard,6,1)*8);
+               Digi7  := to_number(substr(Parm_IdCard,7,1)*7);
+               Digi8  := to_number(substr(Parm_IdCard,8,1)*6);
+               Digi9  := to_number(substr(Parm_IdCard,9,1)*5);
+               Digi10 := to_number(substr(Parm_IdCard,10,1)*4);
+               Digi11 := to_number(substr(Parm_IdCard,11,1)*3);
+               Digi12 := to_number(substr(Parm_IdCard,12,1)*2);
+
+              Begin
+                Select Mod((Digi1+Digi2+Digi3+Digi4+Digi5+Digi6+Digi7+Digi8+Digi9+Digi10+Digi11+Digi12),11) SumDigt
+                  Into ChkDigit
+                from dual;
+              End;
+
+              if (11-ChkDigit) <10 Then
+                 Digi13 := 11-ChkDigit;
+              Else
+                 Digi13 := to_number( substr(to_char(11-ChkDigit,'00'),-1,1));
+              End if;
+
+              If Digi13 =  to_number(substr(Parm_IdCard,13,1)) Then
+               vTmp1 :='TRUE';
+              Else
+               vTmp1 :='FALSE';
+              End if;
+         Return(vTmp1);
+    End CheckDigitIdCard;
+    /* ++++++++++++++++++++++++++ ++++++++++++++++++++++ +++++++++++++++++++++++++ */
+ Begin
+       If Length(trim(Parm_Rec.id_card)) != 13 Then
+         vTmp :='FALSE';
+       Else
+         vTmp := CheckDigitIdCard(Parm_Rec.id_card) ;
+       End if;
+        If vTmp ='FALSE' Then
+          vTmp := CreateLogReject( Parm_Rec,'0007');
+       End if;
+   Return(vTmp);
+ End ValidateIdCard;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Get_ArDeptAmt(Parm_RepSeq  NUMBER) Return NUMBER is
+   nAmt NUMBER ;
+ Begin
+    Begin
+     select reiar_balance arDeptAmt
+      Into nAmt
+     from ms_rep_info
+     where  reirep_seq = Parm_RepSeq;
+     Exception When no_data_found Then nAmt := null;
+    End ;
+  Return(nAmt);
+ End Get_ArDeptAmt;
+/* ***************************************** ****************************************************** ******************************************** */
+Function CreateLogReject (Parm_RiRec  BW_RIREP%ROWTYPE, Parm_ErrCode VARCHAR2,Parm_Txterr VARCHAR2 DEFAULT NULL  ) return VARCHAR2 is
+
+  PRAGMA  AUTONOMOUS_TRANSACTION;
+   Trec1  bw_richk_profile%ROWTYPE;
+   vTmp Varchar2(10) := 'FALSE';
+Begin
+       Trec1.reg_no     := Parm_RiRec.reg_no;
+       Trec1.camp_reg   := Parm_RiRec.appt_campaign;
+       Trec1.err_code   := Parm_ErrCode;
+       Trec1.cre_by     := Parm_RiRec.cre_by;
+
+     Begin
+      Insert into bw_richk_profile ( reg_no, rep_seq, rep_code, rep_status, debt_amt, camp_reg,
+                                     rec_status, err_code, cre_by, cre_date,txterr )
+                             Values( Trec1.reg_no, Trec1.rep_seq, Trec1.rep_code  , Trec1.rep_status, Trec1.debt_amt, Trec1.camp_reg,
+                                     Trec1.rec_status, Trec1.err_code, Trec1.cre_by, sysdate , Parm_Txterr  );
+                Exception When dup_val_on_index Then null;
+     End;
+   Commit;
+ Return(vTmp);
+End CreateLogReject;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Chk_PreName(Parm_Rec  BW_RIREP%ROWTYPE)  return Varchar2 is
+     vTmp     VARCHAR2(10):= 'TRUE';
+ Begin
+    If Parm_Rec.pre_name is  null Then
+       vTmp := CreateLogReject( Parm_Rec,'0103');
+     End if;
+    return (vTmp);
+ End Chk_PreName ;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Chk_ApptSource(Parm_Rec  BW_RIREP%ROWTYPE)  return Varchar2 is
+     vTmp     VARCHAR2(10):= 'TRUE';
+     vTxt     VARCHAR2(20);
+ Begin
+
+           Begin
+              select padentry_code
+                Into vTxt
+                from su_param_dtl
+              where padparam_id   = 102
+                and padentry_code = Parm_ReC.appt_source
+                and rownum        = 1;
+              Exception When no_data_found Then vTmp := CreateLogReject( Parm_Rec,'0001');
+           End;
+
+    return (vTmp);
+ End Chk_ApptSource;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Chk_Gender (Parm_Rec  BW_RIREP%ROWTYPE)  return Varchar2 is
+     vTmp     VARCHAR2(10):= 'TRUE';
+ Begin
+       If Parm_ReC.gender is null Then
+         vTmp := CreateLogReject( Parm_Rec,'0002');
+       End if;
+    return (vTmp);
+ End Chk_Gender;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Chk_Marital (Parm_Rec  BW_RIREP%ROWTYPE)  return Varchar2 is
+     vTmp     VARCHAR2(10):= 'TRUE';
+     vTxt     VARCHAR2(5);
+ Begin
+         Begin
+              select padentry_code
+                Into vTxt
+                from su_param_dtl
+              where padparam_id   = 112
+                and padentry_code = Parm_ReC.marital_status
+                and rownum        = 1;
+          Exception When no_data_found Then  vTmp := CreateLogReject( Parm_Rec,'0003');
+         End ;
+  return (vTmp);
+ End Chk_Marital;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Chk_Religious (Parm_Rec  BW_RIREP%ROWTYPE)  return Varchar2 is
+     vTmp     VARCHAR2(10):= 'TRUE';
+     vTmx      VARCHAR2(10);
+ Begin       --
+     If (Parm_ReC.religious is not null) Then
+             Begin
+               select  'TRUE' CheckFound
+                 Into vTmx
+                    from su_param_dtl p
+                    where p.padparam_id= 3
+                      and padentry_code = Parm_ReC.religious;
+                Exception when no_data_found Then vTmp := CreateLogReject( Parm_Rec,'0004');
+               End;
+        Else
+            vTmp := CreateLogReject( Parm_Rec,'0005');
+      End if;
+   return (vTmp);
+ End Chk_Religious ;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Chk_RefTypeId (Parm_Rec  BW_RIREP%ROWTYPE)  return Varchar2 is
+     vTmp     VARCHAR2(10):= 'TRUE';
+ Begin
+        If Parm_ReC.ref_type_id is null Then
+          vTmp := CreateLogReject( Parm_Rec,'0005');
+        End if;
+  return (vTmp);
+ End Chk_RefTypeId;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Chk_Birthday (Parm_Rec  BW_RIREP%ROWTYPE)  return Varchar2 is
+ vTmp     VARCHAR2(10):= 'TRUE';
+Begin
+    If (trim(Parm_ReC.birth_date) is null) Then
+        vTmp := CreateLogReject( Parm_Rec,'0006');
+    Else
+        If to_char(Parm_ReC.birth_date,'YYYY') >2100  Then
+            vTmp := CreateLogReject( Parm_Rec,'0110');
+        End if;
+    End if;
+  return (vTmp);
+End Chk_Birthday ;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Chk_Idcard (Parm_Rec  BW_RIREP%ROWTYPE)  return Varchar2 is
+  vTmp     VARCHAR2(10):= 'TRUE';
+ Begin
+      If (Parm_ReC.Id_card is null Or
+          length(trim(replace(Parm_ReC.Id_card,chr(32),null)))!=13 or
+          Chk_BackListName ('IDCARD', Parm_ReC.Id_card  ,Parm_Rec) ='TRUE') Then
+          vTmp := CreateLogReject( Parm_Rec,'0007');
+      End if;
+
+     return (vTmp);
+ End Chk_Idcard ;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Chk_Mobile (Parm_Rec  BW_RIREP%ROWTYPE)  return Varchar2 is
+  vTmp     VARCHAR2(10):= 'TRUE';
+ Begin
+        If nvl(Parm_ReC.mobile_no,Parm_ReC.phoneno)  is not null Then
+          If length(Parm_ReC.mobile_no)!=10 Or
+             length(Parm_ReC.phoneno)<9  or
+             length(Parm_ReC.phoneno)>10   then
+            vTmp := CreateLogReject( Parm_Rec,'0008');
+          End if;
+          If  Chk_BackListName ('PHONE', Parm_ReC.mobile_no, Parm_Rec) ='TRUE' Then
+             vTmp := CreateLogReject( Parm_Rec,'0116'); --- Check Back list Mobile
+          End if;
+        Else
+            vTmp := CreateLogReject( Parm_Rec,'0009');
+        End if;
+     return (vTmp);
+ End Chk_Mobile ;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Chk_Apptype (Parm_Rec  BW_RIREP%ROWTYPE)  return Varchar2 is
+  vTmp     VARCHAR2(10):= 'TRUE';
+  vTmx     VARCHAR2(10);
+ Begin
+        If Parm_ReC.appt_type is not null Then
+          Begin
+           select  'TRUE' CheckFound
+             Into vTmx
+                from su_param_dtl p
+                where p.padparam_id= 111
+                  and padentry_code = Parm_ReC.appt_type;
+            Exception when no_data_found Then vTmp := CreateLogReject( Parm_Rec,'0111');
+          End;
+        Else
+          vTmp := CreateLogReject( Parm_Rec,'0112');
+        End if;
+     return (vTmp);
+ End Chk_Apptype ;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Chk_ApptSourcee (Parm_Rec  BW_RIREP%ROWTYPE) return Varchar2 is
+  vTmp     VARCHAR2(10):= 'TRUE';
+  vTmx   VARCHAR2(10);
+ Begin
+        If Parm_ReC.appt_source is not null Then
+          Begin
+            select  'TRUE' CheckFound
+             Into vTmx
+                from su_param_dtl p
+                where p.padparam_id= 102
+                  and padentry_code = Parm_ReC.appt_source;
+            Exception when no_data_found Then  vTmp := CreateLogReject( Parm_Rec,'0115');
+           End;
+        Else
+          vTmp := CreateLogReject( Parm_Rec,'0116');
+        End if;
+      return(vTmp);
+ End Chk_ApptSourcee;
+/* ***************************************** ****************************************************** ******************************************** */
+Function GetLogerr_MaxSeq(Parm_RegNo VARCHAR2) Return NUMBER IS
+    nSeq  number;
+      Begin
+         Begin
+            Select Max(seqno) Seqno
+              into nSeq
+             From bw_richk_logerr
+            Where reg_no = Parm_RegNo;
+         End ;
+          nSeq := nvl(nSeq,0)+1;
+        return(nSeq);
+      End GetLogerr_MaxSeq ;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Chk_DupName (Parm_Rec  BW_RIREP%ROWTYPE) return VARCHAR2 IS
+----
+---- Add check member Friday
+ Cursor RecMsl (Parm_Firstname  VARCHAR2, Parm_lName VARCHAR2) Is
+    select /*+ FIRST_ROWS(5) */ 'TRUE' Chk_found, reporder_status
+         from ms_representative  mx
+           where mx.repfirst_name = Parm_Firstname
+             and mx.repLast_name  = Parm_lname
+             and repappt_status !='DE' ;
+
+ Trec         RecMsl%rowtype;
+ vTmp         VARCHAR2(10)  := 'TRUE';
+ fname        VARCHAR2(100) := rTrim(lTrim(Parm_Rec.first_name)) ;
+ lname        VARCHAR2(100) := replace(rTrim(ltrim(Parm_Rec.last_name)),'*',null);
+Begin
+
+    Open RecMsl ( fname ,lname );
+     Fetch RecMsl Into Trec;
+      If RecMsl%found Then
+        If Trec.reporder_status = 'BL' then
+            vTmp := CreateLogReject( Parm_Rec ,'0808');
+        End If;
+        vTmp := CreateLogReject( Parm_Rec ,'0101');
+        vTmp := Gen_ErrDupName ( Parm_Rec ,'0101');
+      Else
+         vTmp := 'FALSE';
+      End if;
+     Close RecMsl;
+   return(vTmp);
+End Chk_DupName;
+/* ***************************************** ****************************************************** ******************************************** */
+FUNCTION Chk_DupName_Rein (Parm_Rec  BW_RIREP%ROWTYPE, Parm_DelRep OUT VARCHAR2 )  return VARCHAR2 IS
+
+ Cursor RecMsl (Parm_Firstname  VARCHAR2, Parm_lName VARCHAR2) Is
+      select /*+ FIRST_ROWS(5) */
+            'TRUE' Chk_dupfound  , reiar_balance  ar_balance ,mx.repappt_st_campaign , mx.reprep_code , xi.reiar_bal_mpw arBalMpower,
+            mx.reporder_status , mx.reprep_status , substr(mx.reprep_location,3,3) div_code
+         from ms_representative  mx , ms_rep_info  xi
+           Where repou_code      = '000'
+             and repfirst_name   = Parm_Firstname
+             and repLast_name    = Parm_lname
+             and repappt_status != 'DE'
+             and repou_code      = reiou_code
+             and reprep_seq      = reirep_seq ;
+
+ Trec           RecMsl%rowtype;
+ vOuCode        VARCHAR2(3)   := '000';
+ vTmp           VARCHAR2(80)  ;
+ fname          VARCHAR2(100) := rTrim(lTrim(Parm_Rec.first_name)) ;
+ lname          VARCHAR2(100) := replace(rTrim(ltrim(Parm_Rec.last_name)),'*',null);
+ ApptCampNext   VARCHAR2(10)  ;
+ ApptCampReg    VARCHAR2(10)  ;
+ CampApptAllow  NUMBER(2)     := 4; -- Re Appoint campaign allow next 3 = 6campaign - 3campaign of bad dept.  NO06
+ nCntrep        NUMBER(5);
+ nCntIdCard     NUMBER(5);
+ nCodeduprep    VARCHAR2(10)  ;
+ nCodedupid     VARCHAR2(10)  ;
+ vBrandCodeReq  VARCHAR2(10)  ;
+ vBrandCodeDup  VARCHAR2(10)  ;
+Begin
+
+    Begin
+       --select count(*) cntrec Into  nCntIdCard
+       select count(*) cntrec, reprep_code
+       Into nCntIdCard, nCodedupid
+       from ms_representative  mx
+               Where repou_code      = vOuCode
+                 and mx.repid_card   = Parm_Rec.id_card
+                 and repappt_status != 'DE'
+                 and rownum < 3
+               --  and repmember_mis_fri = Parm_Rec.member_mis_fri
+       group by reprep_code;
+       exception when too_many_rows then begin
+                                            nCntIdCard := 2;
+                                            nCodedupid := '';
+                                         end;
+                 when no_data_found then begin
+                                            nCntIdCard := 2;
+                                            nCodedupid := '';
+                                         end;
+    End;
+
+
+    Begin
+       --select count(*) cntrec Into  nCntrep
+       select count(*) cntrec, reprep_code
+       Into nCntrep, nCodeduprep
+       from ms_representative  mx
+               Where repou_code      = vOuCode
+                 and repfirst_name   = fname
+                 and repLast_name    = lname
+                 and repappt_status != 'DE'
+                 and rownum < 3
+               --  and repmember_mis_fri = Parm_Rec.member_mis_fri
+       group by reprep_code;
+       exception when too_many_rows then begin
+                                            nCntrep := 2;
+                                            nCodeduprep := null;
+                                         end;
+                 when no_data_found then begin
+                                            nCntrep := 2;
+                                            nCodeduprep := null;
+                                         end;
+    End;
+
+    If ( nvl(nCntrep,0) <> 1 OR nvl(nCntIdCard,0) <> 1 ) Then --- Check name only one person
+        vTmp := 'FALSE';
+    Elsif ( nvl(nCodeduprep,'IA') = nvl(nCodedupid,'IA') ) Then
+        --mergeBrand
+        --mergeBrand If (substr(Parm_Rec.loc_code,1,1) = '8') Then vBrandCodeReq := 'FARIS'; Else vBrandCodeReq := 'OTHER'; End If;
+        --mergeBrand If (substr(nCodeduprep,1,1) = '8') Then vBrandCodeDup := 'FARIS'; Else vBrandCodeDup := 'OTHER'; End If;
+        --mergeBrand If (vBrandCodeReq = vBrandCodeDup) Then   --- Check Brand from loc code
+           Begin
+             Open RecMsl ( fname ,lname );
+             Fetch RecMsl Into Trec;
+              If RecMsl%found Then
+                If Trec.reprep_status IN ('AC','I1','I2') Then
+                      vTmp := 'REJECT3';
+                Elsif Trec.reporder_status = 'BL' Then
+                      vTmp := 'FALSE';
+                Elsif nvl(Trec.arBalMpower,0) > 0 Then
+                      vTmp := 'FALSE';
+                Elsif nvl(Trec.ar_balance,0) > 100 Then
+                      vTmp := 'REJECT2';
+                      Parm_DelRep := Trec.reprep_code;
+                Else
+                      ApptCampNext := pkgbw_misc.GetCampaign(vOuCode, Trec.repappt_st_campaign, CampApptAllow );
+--                      ApptCampReg  := pkgdb_desc.getcurrent_campaign;
+                      ApptCampReg  := Parm_Rec.appt_campaign;
+                    If  (Trec.Ar_balance <= 100) Then --Trec.Ar_balance > 0 And
+                        If (Substr(ApptCampNext,3,4)||Substr(ApptCampNext,1,2) <= Substr(ApptCampReg,3,4)||Substr(ApptCampReg,1,2)) Then
+                            vTmp := 'TRUE';
+                            Parm_DelRep := Trec.reprep_code;
+                        Else --Set Auto Reject
+                            vTmp := pkgbw_iaverify.CreateLogReject( Parm_Rec ,'0101');
+                            vTmp := pkgbw_iaverify.Gen_ErrDupName ( Parm_Rec ,'0101');
+                            vTmp := 'REJECT1';
+                            Parm_DelRep := Trec.reprep_code;
+                        End If;
+                    Else
+                       vTmp := pkgbw_iaverify.CreateLogReject( Parm_Rec ,'0101');
+                       vTmp := pkgbw_iaverify.Gen_ErrDupName ( Parm_Rec ,'0101');
+                       vTmp := 'FALSE';
+                    End If;
+                End if;
+              Else
+                vTmp :='FALSE';
+              End if;
+              Close RecMsl;
+           End;
+        --mergeBrand Else
+        --mergeBrand     vTmp :='FALSE';
+        --mergeBrand End If;
+    Else
+        vTmp := 'FALSE';
+    End if;
+    return(vTmp);
+End Chk_DupName_Rein ;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Chk_LengthName (Parm_Rec  BW_RIREP%ROWTYPE, Parm_Txt VARCHAR2, Parm_nLimit NUMBER DEFAULT  50 ) Return VARCHAR2 Is
+vTmp  VARCHAR2(10):= 'TRUE';
+   Begin
+      If Length(Parm_Txt)> Parm_nLimit Then
+         vTmp := CreateLogReject( Parm_Rec,'0701');
+      End if;
+      Return(vTmp);
+   End Chk_LengthName;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Chk_dupIdcard (Parm_Rec  BW_RIREP%ROWTYPE) return VARCHAR2 IS
+
+ Cursor RecMsl (Parm_IdCard VARCHAR2)  Is
+   select /*+ FIRST_ROWS(5) */ 'TRUE' Chk_found
+     from ms_representative  mx
+       where mx.repid_card = Parm_IdCard
+         and mx.repappt_status != 'DE'
+         and rownum = 1;
+
+ Trec     RecMsl%rowtype;
+ vTmp     VARCHAR2(10):= 'TRUE';
+ ErrCode  VARCHAR2(5) := '0102';
+ nSeqno   NUMBER;
+Begin
+    Open RecMsl (Parm_Rec.ID_CARD);
+     Fetch RecMsl Into Trec;
+      If RecMsl%found Then
+          vTmp := CreateLogReject(Parm_Rec,ErrCode);
+          vTmp := Gen_ErrDupIdCard (Parm_Rec , ErrCode );
+      End if;
+     Close RecMsl;
+  Return(vTmp);
+End Chk_dupIdcard;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Chk_RepType (Parm_Rec  BW_RIREP%ROWTYPE) Return Varchar2 is
+  vTmp   VARCHAR2(10):= 'TRUE';
+  vTmx   VARCHAR2(5);
+ Begin
+       If Parm_ReC.rep_type is not null Then
+          Begin
+            select  'TRUE' CheckFound
+             Into vTmx
+                from su_param_dtl p
+                where p.padparam_id= 101
+                  and padentry_code = Parm_ReC.rep_type;
+             Exception when no_data_found Then  vTmp := CreateLogReject( Parm_Rec,'0113');
+           End;
+        Else
+           vTmp := CreateLogReject( Parm_Rec,'0114');
+        End if;
+   return(vTmp);
+End Chk_RepType;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Chk_ApptCamp (Parm_Rec  BW_RIREP%ROWTYPE) return varchar2 is
+    CurCamp  VARCHAR2(10);
+    AppCamp  VARCHAR2(10);
+    vCurrCamp  VARCHAR2(10);
+    vTmp       VARCHAR2(10);
+    nRec       NUMBER(6);
+  Begin
+       vCurrCamp  := pkgdb_desc.getcurrent_campaign;
+        CurCamp := (substr(vCurrCamp,3)||substr(vCurrCamp,1,2));
+        AppCamp := (substr(Parm_Rec.appt_campaign,3)||substr(Parm_Rec.appt_campaign,1,2));
+    Begin
+      SELECT count(distinct mplcampaign) CampCnt
+       Into nRec
+      FROM db_mailplan
+      WHERE MPLOU_CODE  ='000'
+        AND (substr(mplcampaign,3)||substr(mplcampaign,1,2)) between  CurCamp  AND AppCamp ;
+    End;
+      If nvl(nRec,0) > 2 Then --  Limit Maximum apptoint campaign
+         vTmp := CreateLogReject( Parm_Rec,'0115');
+      End if;
+    return(vTmp);
+ End Chk_ApptCamp;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Chk_BackListName (Parm_Key VARCHAR2, Parm_Txt VARCHAR2 ,Parm_Rec  BW_RIREP%ROWTYPE ) return varchar2 is
+    vTmp  VARCHAR2(10) := 'TRUE';
+   Begin
+    Begin
+       Select 'TRUE' CheckFound
+         Into vTmp
+       From BW_RI_BACKLIST
+       Where  bcklst_key = Parm_Key
+         and bcklist_txt = Parm_Txt ;
+      Exception When no_data_found Then vTmp := NULL;
+    End;
+      If SQL%FOUND Then
+         vTmp := CreateLogReject( Parm_Rec,'0521');  -- Back List
+      End if;
+     return(vTmp);
+   End Chk_BackListName ;
+/* ***************************************** ****************************************************** ******************************************** */
+/* ***************************************** *************       GET           ******************** ******************************************** */
+/* ***************************************** ****************************************************** ******************************************** */
+ Function  Get_ChkErrMaxSeq(Parm_Regno VARCHAR2 ) return number is
+     nSeq  NUMBER;
+     Begin
+        Begin
+          select max(seqno)
+           into nSeq
+           from bw_richk_logerr
+          where reg_no = Parm_Regno;
+         end;
+           nSeq := nvl(nSeq,0)+1;
+        return(nSeq);
+     end get_ChkErrMaxSeq;
+
+/* ***************************************** ****************************************************** ******************************************** */
+Function  Get_RepArBal(Parm_OuCOde VARCHAR2, Parm_RepSeq Number) Return Number Is
+  nArBal  Number;
+  Begin
+     Begin
+          SELECT /*+ FIRST_ROWS(5) */
+                 reiar_balance
+            Into nArBal
+           FROM ms_rep_info
+           Where  reiou_code  = Parm_OuCOde
+             and reirep_seq   = Parm_RepSeq;
+          Exception when no_data_found Then nArBal :=  0;
+     End;
+   return (nArBal);
+  End  Get_RepArBal;
+/* ***************************************** ****************************************************** ******************************************** */
+
+Function Gen_ErrDupName ( Parm_Rec  bw_rirep%rowtype , Parm_ErrCode varchar2 )  return varchar2 is
+
+ cursor Rec (Parm_Fname VARCHAR2, Parm_Lname VARCHAR ) is
+   select  /*+ FIRST_ROWS(10) */
+          mx.repou_code,mx.reprep_seq,
+          mx.reprep_code rep_code , mx.reprep_name rep_name, mx.repappt_campaign appt_campaign, mx.repid_card idcard ,
+          mx.repbirth_date birthdate, mx.repmobile_no mobile
+
+   from ms_representative  mx
+   where repfirst_name   = Parm_Fname
+     and replast_name    = Parm_Lname
+     and repappt_status !='DE'
+     and not exists (select dist_code from bev$_skipdist where dist_code = reploc_code)
+;
+
+   Trec   bw_richk_logerr%rowtype;
+   vTmp        VARCHAR2(10);
+   vFirstName  VARCHAR2(100) := ltrim(rtrim(Parm_Rec.First_Name));
+   vLastName   VARCHAR2(100) := ltrim(rtrim(Parm_Rec.Last_Name));
+
+   /* ------------------------------------------ ****************************** ------------------------------------ */
+Begin
+   Begin
+     delete bw_richk_logerr where reg_no = Parm_Rec.Reg_no and err_code =Parm_ErrCode;
+   End;
+
+   commit;
+
+   For Trx In Rec (vFirstName, vLastName ) Loop
+        Trec.reg_no     := Parm_Rec.Reg_no ;
+        Trec.err_code   := Parm_ErrCode;
+        Trec.seqno      := Get_ChkErrMaxSeq(Parm_Rec.Reg_no );
+        Trec.rep_code   := Trx.rep_code;
+        Trec.rec_status := 'Rx';
+        Trec.ar_status  := 'Ax';
+        Trec.rep_status := 'RP';
+        Trec.rep_name   := Trx.rep_name;
+        Trec.dept_amt   := Get_RepArBal(Trx.repou_code ,Trx.reprep_seq) ;
+        Trec.appt_camp  := Trx.appt_campaign;
+        Trec.id_card    := Trx.idcard;
+        Trec.cre_by     := Parm_Rec.cre_by;
+        Trec.cre_date   := Parm_Rec.cre_date;
+        Trec.birth_date := Trx.birthdate;
+        Trec.mobile_no  := Trx.mobile ;
+       Begin
+        Insert into bw_richk_logerr values Trec;
+          Exception When dup_val_on_index Then  null;
+       End;
+   End Loop;
+  Return(vTmp);
+End Gen_ErrDupName;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Gen_ErrDupName ( Parm_RegNo varchar2, Parm_ErrCode varchar2 )  return  varchar2 is
+  vTmp VARCHAR2(10);
+  rTmp   BW_RIREP%ROWTYPE;
+  Begin
+     Begin
+        select rx.*
+          Into rTmp
+          from bw_rirep  rx
+         Where  reg_no  = Parm_RegNo;
+        Exception When  no_data_found Then vTmp  :=NULL;
+     End ;
+    vTmp := Gen_ErrDupName ( rTmp ,Parm_ErrCode);
+  Return(vTmp);
+End Gen_ErrDupName;
+/* ***************************************** ****************************************************** ******************************************** */
+Function Gen_ErrDupIdCard ( Parm_Rec  BW_RIREP%ROWTYPE , Parm_ErrCode varchar2 )  return varchar2 is
+
+ cursor Rec (Parm_Idcard VARCHAR2 ) is
+   select  /*+ FIRST_ROWS(10) */
+          mx.reprep_code rep_code , mx.reprep_name rep_name, mx.repappt_campaign appt_campaign, mx.repid_card idcard ,
+          mx.repbirth_date birthdate, mx.repmobile_no mobile, Get_RepArBal(repou_code ,reprep_seq) debtamt
+   from ms_representative  mx
+   where repid_card = Parm_Idcard
+     and repappt_status not in ('DE');
+
+   Trec   bw_richk_logerr%rowtype;
+   vTmp   VARCHAR2(10);
+   vFirstName  VARCHAR2(100) := ltrim(rtrim(Parm_Rec.first_name));
+   vLastName   VARCHAR2(100) := ltrim(rtrim(Parm_Rec.Last_name));
+
+   /* ------------------------------------------ ****************************** ------------------------------------ */
+Begin
+   For Trx In Rec (Parm_Rec.Id_card) Loop
+        Trec.reg_no     := Parm_Rec.Reg_no ;
+        Trec.err_code   := Parm_ErrCode;
+        Trec.seqno      := Get_ChkErrMaxSeq(Parm_Rec.Reg_no );
+        Trec.rep_code   := Trx.rep_code;
+        Trec.rec_status := 'Rx';
+        Trec.ar_status  := 'Ax';
+        Trec.rep_status := 'RP';
+        Trec.rep_name   := Trx.rep_name;
+        Trec.dept_amt   := Trx.debtamt;
+        Trec.appt_camp  := Trx.appt_campaign;
+        Trec.id_card    := Trx.idcard;
+        Trec.cre_by     := Parm_Rec.cre_by;
+        Trec.cre_date   := Parm_Rec.cre_date;
+        Trec.birth_date := Trx.birthdate;
+        Trec.mobile_no  := Trx.mobile ;
+       Begin
+        Insert into bw_richk_logerr values Trec;
+          Exception When dup_val_on_index Then  null;
+       End;
+   End Loop;
+  Return(vTmp);
+End Gen_ErrDupIdCard;
+
+/* ***************************************** ****************************************************** ******************************************** */
+Function ValidateRiAddress (Parm_Rec  BW_RIREP%ROWTYPE, Parm_AdrrType VARCHAR2 Default '1') return VARCHAR2 IS
+ vTmp     VARCHAR2(10):= 'TRUE';
+ rAddr    BW_RIADDRESS%ROWTYPE;
+Begin
+    Begin
+     Select /*+parallel(Adr,4) */
+            Adr.*
+       into rAddr
+      FROM bw_riaddress Adr
+     Where reg_no    = Parm_Rec.reg_no
+       and addr_type = Parm_AdrrType
+       and rownum    = 1;
+      Exception when no_data_found Then vTmp := CreateLogReject( Parm_Rec,'0201');
+    End;
+
+       If Length(rAddr.Line1||rAddr.Line2)>60 Then vTmp := CreateLogReject( Parm_Rec,'0522'); End if;
+
+       If Length(rAddr.Line3) >50 Then vTmp := CreateLogReject( Parm_Rec,'0522'); End if;
+
+       If rAddr.tumbon_code   is null Then vTmp := CreateLogReject( Parm_Rec,'0202'); End if;
+       If rAddr.amphur_code   is null Then vTmp := CreateLogReject( Parm_Rec,'0205'); End if;
+       if rAddr.province_code is null Then vTmp := CreateLogReject( Parm_Rec,'0208'); End if;
+       If rAddr.postal_code   is null Then vTmp := CreateLogReject( Parm_Rec,'0210'); End if;
+   return(vTmp);
+End ValidateRiAddress;
+/* ***************************************** ****************************************************** ******************************************** */
+Function GetMgrDsm(Parm_LocCode VARCHAR2)  return VARCHAR2 Is
+      vMgrDsm VARCHAR2(20);
+  begin
+     begin
+        select dstmgr_empid
+         Into vMgrDsm
+        from bw_riloc
+        where dstloc_code = Parm_LocCode ;
+       Exception When no_data_found Then vMgrDsm := null;
+     End;
+    Return(vMgrDsm);
+  End GetMgrDsm;
+/* ***************************************** ****************************************************** ******************************************** */
+Function getBillDate(Parm_LocCode VARCHAR2 , Parm_CurrCamp VARCHAR2 ) RETURN DATE  is
+     dBillDate DATE;
+   Begin
+      begin
+        SELECT DISTINCT (billdate) next_billdate
+           Into dBillDate
+            FROM  BEV$_MAILPLAN mx
+            where Mx.loc_code    = Parm_LocCode
+             and mx.mplcampaign = Parm_CurrCamp ;
+         Exception When no_data_found Then dBillDate := sysdate;
+      end;
+     return(dBillDate);
+   End getBillDate;
+/* ***************************************** ****************************************************** ******************************************** */
+Function getShipDate(Parm_LocCode VARCHAR2 , Parm_CurrCamp  VARCHAR2 ) RETURN DATE  is
+     dDate1  DATE;
+   Begin
+      begin
+        SELECT  distinct (shipdate) next_billdate
+           Into dDate1
+         FROM  BEV$_MAILPLAN mx
+            where Mx.loc_code   = Parm_LocCode
+             and mx.mplcampaign = Parm_CurrCamp ;
+         Exception When no_data_found Then dDate1 := sysdate ;
+      end;
+     return(dDate1);
+   End getShipDate ;
+/* ***************************************** ****************************************************** ******************************************** */
+Function getNextShipDate(Parm_LocCode VARCHAR2 , Parm_Currdate DATE DEFAULT SYSDATE ) RETURN DATE  is
+     dDate1  DATE;
+   Begin
+      begin
+        SELECT  min(shipdate) next_billdate
+           Into dDate1
+          FROM  BEV$_MAILPLAN
+            where   loc_code    = Parm_LocCode
+             and shipdate >= Trunc(Parm_Currdate) ;
+      end;
+     return(dDate1);
+   End getNextShipDate ;
+/* ***************************************** ****************************************************** ******************************************** */
+Function GetCodeRed(Parm_OuCode VARCHAR2, Parm_LocCode VARCHAR2 ) return VARCHAR2 IS
+    vTmp  VARCHAR2(10);
+ Begin
+    Begin
+       SELECT dst.dstred_status CodeRed
+         INTO vTmp
+         FROM db_sales_location dst
+        WHERE dst.dstou_code = Parm_OuCode
+          AND dst.dstloc_code = Parm_LocCode ;
+    Exception when No_Data_found Then vTmp :='0';
+ End ;
+   return(vTmp);
+ End GetCodeRed;
+/* ***************************************** ****************************************************** ******************************************** */
+
+/* ***************************************** ****************************************************** ******************************************** */
+Function GetPicPath_Default Return VARCHAR2 IS
+   PathVar   VARCHAR2(100);
+  Begin
+       Begin
+         select VARTXT5 PathVar
+           Into PathVar
+           from  bw_def$sys
+           where parm_key ='DSM_RI_PIC_PATH'
+             and seq_no   = 1 ;
+         Exception when no_data_found Then PathVar := null;
+       End;
+   Return(PathVar);
+ End GetPicPath_Default;
+/* ***************************************** ****************************************************** ******************************************** */
+Function GetxDivcode (Parm_LocCode VARCHAR2) return varchar2 is
+   vTmpLoc VARCHAR2(10);
+  Begin
+    Begin
+     select dstparent_loc_code div_code
+      Into vTmpLoc
+      FROM bw_riloc
+      where  dstloc_code= Parm_LocCode;
+     Exception When no_data_found Then vTmpLoc := null;
+    End;
+   return(vTmpLoc);
+  End GetxDivcode;
+  /* ***************************************** ****************************************************** ****************************************** */
+Function GetxNSMcode (Parm_LocCode VARCHAR2) return varchar2 IS
+   vTmpLoc VARCHAR2(10);
+   vTmpDiv VARCHAR2(10);
+  Begin
+       vTmpDiv :=GetxDivcode (Parm_LocCode);
+    Begin
+     select dstparent_loc_code div_code
+      Into vTmpLoc
+      FROM bw_riloc
+      where  dstloc_code = vTmpDiv;
+     Exception When no_data_found Then vTmpLoc := null;
+    End;
+   return(vTmpLoc);
+  End GetxNSMcode;
+  /* ***************************************** ****************************************************** ****************************************** */
+Function GetxDivDesc (Parm_LocCode VARCHAR2) return varchar2 is
+   vTmpLoc VARCHAR2(100);
+  Begin
+    Begin
+    select  DSTLOC_NAME
+      into vTmpLoc
+    from db_sales_location
+     where dstloc_type ='D' and DSTLOC_CODE =Parm_LocCode;
+     Exception When no_data_found Then vTmpLoc := null;
+    End;
+   return(vTmpLoc);
+  End GetxDivDesc;
+/* ***************************************** ****************************************************** ******************************************** */
+Function GetxRepLoc (Parm_DivCode VARCHAR2) return varchar2 is
+   vTmpLoc VARCHAR2(10);
+  Begin
+     Begin
+     select dstparent_loc_code div_code
+       Into vTmpLoc
+     FROM bw_riloc
+       where  dstloc_code= Parm_DivCode;
+      Exception When no_data_found Then vTmpLoc := null;
+     End;
+    return(vTmpLoc);
+  End GetxRepLoc;
+/* ***************************************** ****************************************************** ******************************************** */
+Function GetReturnText(parm_reg_no bw_rirep.reg_no%TYPE) return varchar2 IS
+     Cursor Rec Is
+        Select /*+ FIRST_ROWS(10) **/
+              Mx.err_code
+         From bw_richk_profile Mx ,  bw_def$sys
+       where parm_key = 'DSM_ERR'
+        and vartxt1   =  Mx.err_code
+        and vartxt2   = 'EN'
+        AND reg_no like Trim(parm_reg_no)||'%';
+
+   vReturnText  varchar2(4000);
+   Trec        Rec%rowtype;
+
+   Begin
+      vReturnText := null;
+       Open Rec ;
+        Fetch Rec Into Trec;
+         If Rec%found Then
+              Loop
+                   If vReturnText is null Then
+                      vReturnText := Trec.err_code;
+                   Else
+                      vReturnText := vReturnText || ',' || Trec.err_code;
+                   end if;
+                Fetch Rec Into Trec;
+                Exit When Rec%notfound;
+              End loop;
+         End if;
+         Close Rec;
+      return (vReturnText);
+   End GetReturnText;
+/* ***************************************** ****************************************************** ******************************************** */
+Function GetReturnTextDesc(parm_reg_no bw_rirep.reg_no%TYPE) return varchar2 IS
+     Cursor Rec Is
+        Select /*+ FIRST_ROWS(10) **/
+              vartxt10 err_code
+         From bw_richk_profile Mx ,  bw_def$sys
+       where parm_key = 'DSM_ERR'
+        and vartxt1   =  Mx.err_code
+        and vartxt2   = 'EN'
+        AND reg_no like Trim(parm_reg_no)
+        AND ROWNUM <=10;
+
+   vReturnText  varchar2(4000);
+   Trec        Rec%rowtype;
+
+   Begin
+      vReturnText := null;
+       Open Rec ;
+        Fetch Rec Into Trec;
+         If Rec%found Then
+              Loop
+                   If vReturnText is null Then
+                      vReturnText := Trec.err_code;
+                   Else
+                      vReturnText := vReturnText || ',' || Trec.err_code;
+                   end if;
+                Fetch Rec Into Trec;
+                Exit When Rec%notfound;
+              End loop;
+         End if;
+         Close Rec;
+      return (vReturnText);
+   End GetReturnTextDesc;
+/* ***************************************** ****************************************************** ******************************************** */
+Function GetTabletError (Parm_ErrCode VARCHAR2) return varchar2 is
+   vTmp  VARCHAR2(100);
+   Begin
+      Begin
+        Select vartxt10 ErrorDesc
+          Into vTmp
+          FROM bw_def$sys
+        where  parm_key = 'DSM_ERR'
+          and vartxt1   =   Parm_ErrCode;
+        Exception When no_data_found then vTmp := null;
+      End ;
+     return(vTmp);
+   End GetTabletError ;
+/* ***************************************** ****************************************************** ******************************************** */
+/*                                                                                                                                               */
+/* ***************************************** ****************************************************** ******************************************** */
+/* ***************************************** ************   PROCEDURE SECTION  ******************** ******************************************** */
+/* ***************************************** ****************************************************** ******************************************** */
+/*                                                                                                                                               */
+/* ***************************************** ****************************************************** ******************************************** */
+/* ***************************************** ****************************************************** ******************************************** */
+ Procedure Delete_RejectRecord (Parm_OuCode  VARCHAR2 ) is
+
+  Cursor Recx1 (Parm_OuCode  VARCHAR2, Parm_MailGrp VARCHAR2,Parm_Camp VARCHAR2) iS
+      select mailgroup , shipdate ,mplcampaign
+      from (select distinct  mailgroup , shipdate , mplcampaign
+              from bev$_mailplan Mx
+            where mx.mplou_code = Parm_OuCode
+              and mx.campaign    < Substr(3,4)||Substr(Parm_Camp,1,2)
+              and mailgroup     = Parm_MailGrp
+             order by shipdate desc)
+        where  rownum <= 2
+         order by shipdate;
+
+  Trecx       Recx1%rowtype;
+  vMailGroup  varchar2(3);
+  dShipDate   DATE         := pkgdb_desc.getcurrent_camp_date;
+  vCurrCamp   VARCHAR2(10) := pkgdb_desc.getcurrent_campaign;
+  /* ********************************************** ***************************************** ******************************** */
+  Procedure  Delrec_PreviousCamp (Parm_OuCode VARCHAR2, Parm_MailGrp VARCHAR2 ,  Parm_MplCampaign  VARCHAR2 ) is
+ Cursor CurdelRec Is
+   select distinct  mailgroup , shipdate , mplcampaign , rx.loc_code, rx.reg_no , rep_code
+          from bev$_mailplan Mx , bw_rirep rx
+        where mx.mplou_code = Parm_OuCode
+          and mx.campaign   = Parm_MplCampaign
+          and mailgroup     = Parm_MailGrp
+          and mx.loc_code   = rx.loc_code
+          and send_date    <= shipdate
+          and rx.validate_check !='9'
+          and rep_code           ='PENDING' ;
+
+    Begin
+       For Trec In CurdelRec Loop
+           Begin
+              Delete bw_rirep
+                where  loc_code  = Trec.loc_code
+                  and reg_no     = Trec.reg_no
+                  and rep_code   = Trec.rep_code
+                  and validate_code !='9';
+           End;
+       End Loop;
+    End Delrec_PreviousCamp ;
+  /* ********************************************** ***************************************** ******************************** */
+BEGIN
+    Begin
+        select distinct  mailgroup
+          Into vMailGroup
+        from bev$_mailplan Mx
+        where mx.mplou_code = Parm_OuCode
+         and mx.mplcampaign = vCurrCamp
+         and mx.shipdate    = dShipDate;
+        Exception When no_data_found Then vMailGroup := null;
+    End;
+    --
+    --
+    --
+    Open Recx1(Parm_OuCode, vMailGroup,vCurrCamp);
+     Fetch Recx1 Into Trecx;
+        If Recx1%FOUND  Then
+           Delrec_PreviousCamp (Parm_OuCode , vMailGroup,Trecx.mplcampaign);
+        End if;
+    Close Recx1;
+
+End  ;
+ /* ***************************************** ****************************************************** ******************************************** */
+ Procedure putMSL_GPS(parm_rep_code bw_rirep.rep_code%TYPE, parm_latitude bw_riaddress.latitude%TYPE, parm_longitude bw_riaddress.longitude%TYPE) IS
+    vRep_seq   ms_representative.reprep_seq%type;
+   Begin
+        Begin
+           insert into MS_MSL_PROPERTY (OU_CODE, REP_CODE, ADDR_TYPE, LATITUDE, LONGITUDE, INACTIVE)
+           values ('000', parm_rep_code, '1', parm_latitude, parm_longitude, 'N');
+        Exception When DUP_VAL_ON_INDEX Then
+           Begin
+              update MS_MSL_PROPERTY set LATITUDE = parm_latitude, LONGITUDE = parm_longitude
+              where OU_CODE = '000'
+                and REP_CODE = parm_rep_code
+                and ADDR_TYPE = '1';
+            End;
+        End;
+   End putMSL_GPS;
+ /* ***************************************** ****************************************************** ******************************************** */
+
+/* ***************************************** ****************************************************** ******************************************** */
+ Procedure UpdateRegStatus(Parm_Rec  BW_RIREP%ROWTYPE)  IS
+   nCrecx NUMBER;
+   dWorkDate  DATE;
+   CurrCamp   VARCHAR2(10);
+     Begin
+        Begin
+          select 1 ChkRec
+           Into nCrecx
+           From bw_richk_profile
+           Where Reg_no  = Parm_Rec.reg_no
+            and rownum = 1 ;
+           Exception When no_data_found Then nCrecx:= 0;
+        End;
+
+       CurrCamp  := pkgdb_desc.getcurrent_campaign;
+       dWorkDate := Get_WorkDate(CurrCamp,Parm_Rec.loc_code,Parm_Rec.send_date);
+
+        If nvl(nCrecx,0)=0 Then
+           Begin
+              Update BW_RIREP
+                 set rep_code    = 'AUTO',
+                     validate_check ='0',
+                     validate_date = sysdate,
+                     validate_code ='TRUE',
+                     cur_campaign  = CurrCamp,
+                     work_date     = dWorkDate,
+                     upd_by      = 'PACKAGE',
+                     upd_date    = sysdate
+              where reg_no       = Parm_Rec.reg_no
+                and reg_status   ='0';
+           End ;
+        Else --- Invalid validate
+           Begin
+              Update BW_RIREP
+                 set validate_check ='1',
+                     validate_date = sysdate,
+                     validate_code = 'TRUE',
+                     cur_campaign  = CurrCamp,
+                     upd_by      = 'PACKAGE',
+                     upd_date    = sysdate
+              where reg_no       = Parm_Rec.reg_no
+                and reg_status   ='0';
+           End ;
+        end if;
+ End UpdateRegStatus;
+/* ***************************************** ****************************************************** ******************************************** */
+/* *****************************************       Procedure validate record                        ******************************************** */
+/* ***************************************** ****************************************************** ******************************************** */
+ Procedure RegNoRecValidate (Parm_LocCode VARCHAR2 default NULL , Parm_Regno Varchar2 default NULL ) is
+
+ PRAGMA AUTONOMOUS_TRANSACTION;
+
+  Cursor CurRecValidate is
+      SELECT /*+ first_rows(100) */
+             rx.*
+        From BW_RIREP rx
+       where Loc_code like Parm_LocCode||'%'
+        and reg_no    like Parm_RegNo||'%'
+        and rep_code is null
+        and nvl(rx.validate_code,'FALSE') ='FALSE' ;
+
+  vTmp              VARCHAR2(10);
+  vDelRepCode       VARCHAR2(20);
+  dWorkDate         DATE;
+  CurrCamp          VARCHAR2(10);
+  vNote_txt         VARCHAR2(100);
+ Begin
+    For TRirec In CurRecValidate Loop
+       Begin
+         delete From BW_RICHK_PROFILE
+           Where reg_no = TRirec.reg_no;
+       End;
+       --
+       COMMIT;
+       --
+       -- Validate check section
+       --
+          vTmp := Chk_ApptCamp(TRirec);
+          vTmp := Chk_PreName(TRirec);
+          vTmp := Chk_ApptSource(TRirec);
+          vTmp := Chk_Gender (TRirec);
+          vTmp := Chk_Marital (TRirec);
+          vTmp := Chk_Religious (TRirec);
+          vTmp := Chk_RefTypeId (TRirec);
+          vTmp := Chk_Birthday (TRirec);
+          vTmp := Chk_Idcard (TRirec);
+          vTmp := Chk_Mobile (TRirec);
+          vTmp := Chk_Apptype (TRirec);
+          vTmp := Chk_ApptSourcee (TRirec);
+          vTmp := Chk_RepType (TRirec);
+          vTmp := Chk_LengthName (TRirec, TRirec.First_name||' '||TRirec.First_name,70);
+          vTmp := Chk_name_validate(TRirec);
+          vTmp := Chk_DupName   (TRirec);
+          vTmp := Chk_dupIdcard (TRirec);
+          vTmp := ValidateRiAddress (TRirec,'1'); --Delivery
+          vTmp := ValidateRiAddress (TRirec,'2'); --Permanent
+
+            --mergeBrand If substr(Parm_LocCode,1,1) = '8' Then
+            --mergeBrand     -- Update record status
+            --mergeBrand     UpdateRegStatus(TRirec);
+            --mergeBrand Else
+          CurrCamp  := pkgdb_desc.getcurrent_campaign;
+          dWorkDate := pkgdb_desc.getcurrent_camp_date;
+          vTmp := Chk_DupName_Rein(TRirec, vDelRepCode );
+              If vTmp = 'TRUE' Then
+                  Begin
+                      Update BW_RIREP
+                         set rep_code       = 'AUTO',
+                             validate_check = '0',
+                             validate_date  = sysdate,
+                             validate_code  = 'TRUE',
+                             cur_campaign   = CurrCamp,
+                             work_date      = dWorkDate,
+                             upd_by         = 'PACKAGE',
+                             upd_date       = sysdate,
+                             fource_status  = 'NO60' ,
+                             dele_repcode   = vDelRepCode
+                      where reg_no          = TRirec.reg_no
+                        and reg_status     = '0';
+                  End;
+              ElsIf (vTmp = 'REJECT1' or vTmp = 'REJECT2' or vTmp = 'REJECT3') Then
+                  If vTmp = 'REJECT1' Then
+                     vNote_txt := 'ID.ซ้ำ รหัส   ' || vDelRepCode || '   NO.6 รอบ  (อัตโนมัต Reject)';
+                  Elsif vTmp = 'REJECT2' Then
+                     vNote_txt := 'ID.ซ้ำ รหัส   ' || vDelRepCode || '  มีหนี้ค้างชำระ  (อัตโนมัต Reject)';
+                  Else
+                     vNote_txt := 'ID.ซ้ำ รหัส   ' || vDelRepCode || '  สถานะ A/T  (อัตโนมัต Reject)';
+                  End If;
+                  Begin
+                      Insert Into bw_ri_csnote (reg_no, seqno, source_from, note_code, note_txt, rec_status, cre_by, cre_date)
+                      Values (TRirec.reg_no, 1, 'CS', '0020', vNote_txt, 99, null, sysdate);
+                      Exception When dup_val_on_index Then null;
+                  End;
+                  Begin
+                      Update BW_RIREP
+                         set rep_code    = 'AT-REJECT',
+                             validate_check ='6',
+                             validate_date = sysdate,
+                             validate_code ='TRUE',
+                             cur_campaign  = CurrCamp,
+                             work_date     = dWorkDate,
+                             upd_by      = 'PACKAGE',
+                             upd_date    = sysdate
+                      where reg_no       = TRirec.reg_no
+                        and reg_status   ='0';
+                  End;
+              Else
+                -- Update record status
+                UpdateRegStatus(TRirec);
+              End if;
+            --mergeBrand End if;
+      End Loop ;
+   COMMIT;
+ End RegNoRecValidate;
+/* ***************************************** ****************************************************** ******************************************** */
+ Procedure CreateBatcId (Parm_OuCode Varchar2, Parm_LocCode VARCHAR2 default NULL , Parm_Regno Varchar2 default NULL ) IS
+
+  PRAGMA AUTONOMOUS_TRANSACTION;
+
+   Cursor CurRec is
+      SELECT reg_no, loc_code, NVL(validate_check,'0')  validate_check, Cre_date , send_date
+        FROM BW_RIREP rx
+       where loc_code like Parm_LocCode||'%'
+        and rx.reg_no like Parm_Regno||'%'
+        and rx.reg_batchno is null
+         for update of reg_no  NOWAIT
+       Order by loc_code ;
+
+  Trec        CurRec%Rowtype;
+  nCnt        NUMBER := 0;
+  nBatchRec   NUMBER := 20;---  Initial Max record per batch
+  vTLocCode   varchar2(10);
+  vTmpBatchId VARCHAR2(20);
+  vTmpx       varchar2(20);
+  CurrCamp    VARCHAR2(10):= pkgdb_desc.getcurrent_campaign;
+   vUserId  VARCHAR2(20) := 'PKG_IAVERIFY';
+
+/* ***************************************** ****************************************************** ******************************************** */
+   Function GetxBatchno(Parm_OuCode  VARCHAR2 ,
+                        Parm_DocDate DATE     default sysdate ,
+                        Parm_DocType VARCHAR2  ) RETURN VARCHAR2 IS
+
+      vNextDoc    VARCHAR2(20);
+
+      nYear    NUMBER(4):= to_number(to_char(Parm_DocDate,'YYYY'));
+      nPeriod  NUMBER(2):= to_number(to_char(Parm_DocDate,'MM'));
+      nDocNo   NUMBER(9);
+      vPrefix  bw_doc_ctrl.docprefix%TYPE;
+
+    BEGIN
+      vPrefix := 'BA'||Parm_DocType ;
+      Begin
+           Select last_docno
+             INTO nDocNo
+            from  BW_DOC_CTRL
+             Where ou_code    = Parm_OuCode
+               and doc_year   = nYear
+               and doc_period = nPeriod
+               and docprefix  = vPrefix
+             FOR UPDATE OF ou_code,doc_year,doc_period,docprefix NOWAIT ;
+
+                Begin
+                 Update BW_DOC_CTRL
+                    Set last_docno = last_docno+1 ,
+                        upd_date   = SYSDATE,
+                        upd_by     = vUserId
+                 Where ou_code    = Parm_OuCode
+                   and doc_year   = nYear
+                   and doc_period = nPeriod
+                   and docprefix  = vPrefix;
+                End;
+                Exception When No_data_Found Then
+                 nDocNo := 0;
+                Begin
+                  INSERT INTO BW_DOC_CTRL (ou_code, doc_year,doc_period,docprefix,last_docno,upd_by,upd_date)
+                     VALUES (Parm_OuCode, nYear ,nPeriod ,vPrefix,1,vUserId ,SYSDATE);
+                End;
+        End;
+         vNextDoc := Parm_DocType||to_char(Parm_DocDate,'YYMM')||ltrim(to_char(nDocNo+1 ,'000000'));
+      return(vNextDoc);
+    End GetxBatchno;
+Begin
+
+    Open CurRec;
+      Fetch CurRec into Trec;
+      If CurRec%found Then
+          Loop
+           If (nvl(vTLocCode,'x') <> Trec.Loc_code)  Then
+                  vTLocCode := Trec.Loc_code ;
+                vTmpBatchId := GetxBatchno (Parm_OuCode, sysdate,'BT') ;
+           End if;
+
+            Begin
+              Update BW_RIREP
+                  SET reg_batchno   = vTmpBatchId,
+                      billing_date  = getBillDate(Trec.Loc_code, CurrCamp),
+                      nsm           = GetxNSMcode(loc_code),
+                      div_code      = GetxDivcode(loc_code),
+                      dsm_code      = GetMgrDsm(loc_code),
+                      ship_date     = GetShipdate(loc_code, CurrCamp),
+                      work_date     = sysdate,
+                      upd_date      = sysdate,
+                      upd_by        = vUserId
+               Where reg_no = Trec.reg_no;
+           End;
+             Fetch CurRec into Trec;
+             Exit when CurRec%NOTFOUND;
+         End Loop;
+        End if;
+     Close CurRec;
+   Commit;
+End CreateBatcId ;
+/* ***************************************** ****************************************************** ******************************************** */
+Procedure MainProcedure (Parm_LocCode VARCHAR2 default NULL , Parm_Regno Varchar2 default NULL ) IS
+
+ vTmpOuCOde VARCHAR2(5) := '000';
+
+   Begin
+     --
+     -- Step : 1 Create Batch job
+      CreateBatcId (vTmpOuCOde ,Parm_LocCode, Parm_Regno);
+     --
+     -- Step : 2  Validate register record
+     --
+      RegNoRecValidate ( Parm_LocCode, Parm_Regno);
+
+   End MainProcedure ;
+
+ END ;
+/

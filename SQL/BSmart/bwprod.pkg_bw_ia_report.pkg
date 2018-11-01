@@ -1,0 +1,476 @@
+CREATE OR REPLACE PACKAGE "PKG_BW_IA_REPORT" IS
+    TYPE BEIAQY01_DIST_TYPE     IS RECORD ( DSTPARENT_LOC_CODE      VARCHAR2(5),
+                                            DSTLOC_CODE             VARCHAR2(5),
+                                            DSTLOC_NAME             VARCHAR2(500),
+                                            TOTAL_SEND              NUMBER(20),
+                                            TOTAL_SUCCESS           NUMBER(20),
+                                            TOTAL_SUCCESS_CUR       NUMBER(20),
+                                            TOTAL_SUCCESS_OTH       NUMBER(20),
+                                            TOTAL_ON_PROCESS        NUMBER(20),
+                                            TOTAL_REJ               NUMBER(20)
+                                          );
+
+
+
+
+
+    TYPE TAB_BEIAQY01_DIST               is table of BEIAQY01_DIST_TYPE;
+
+
+    -----------------------------------------------------------------------------
+    FUNCTION FPU_TAB_BEIAQY01_DIST  RETURN TAB_BEIAQY01_DIST  pipelined ;
+    -----------------------------------------------------------------------------
+
+
+    TYPE BEIAQY02_DIST_TYPE     IS RECORD ( DSTPARENT_LOC_CODE      VARCHAR2(5),
+                                            DSTLOC_CODE             VARCHAR2(5),
+                                            DSTLOC_NAME             VARCHAR2(500),
+                                            TOTAL_SEND              NUMBER(20),
+                                            TOTAL_SUCCESS           NUMBER(20),
+                                            TOTAL_SUCCESS_CUR       NUMBER(20),
+                                            TOTAL_SUCCESS_OTH       NUMBER(20),
+                                            TOTAL_ON_PROCESS        NUMBER(20),
+                                            TOTAL_REJ               NUMBER(20)
+                                          );
+
+    TYPE TAB_BEIAQY02_DIST               is table of BEIAQY02_DIST_TYPE;
+    -----------------------------------------------------------------------------
+    FUNCTION FPU_TAB_BEIAQY01_DIST2  RETURN TAB_BEIAQY02_DIST  pipelined ;
+    -----------------------------------------------------------------------------
+
+END; -- Package spec
+
+/
+CREATE OR REPLACE PACKAGE BODY "PKG_BW_IA_REPORT" IS
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+FUNCTION FPU_TAB_BEIAQY01_DIST  RETURN TAB_BEIAQY01_DIST  pipelined  IS
+
+    TabOut              TAB_BEIAQY01_DIST;
+    rRefCur             sys_refcursor;
+
+    vTmp_divcode        VARCHAR2(5);
+    nTmp_camp_f         VARCHAR2(10);
+    nTmp_camp_t         VARCHAR2(10);
+    vTmp_status         VARCHAR2(20);
+    vTmp_pending_div    VARCHAR2(1);
+
+
+
+BEGIN
+    nTmp_camp_f         := PKG_BW_IA_PARAM.GET_BEIAQY01_CAMP_F;
+    nTmp_camp_t         := PKG_BW_IA_PARAM.GET_BEIAQY01_CAMP_T;
+    vTmp_divcode        := PKG_BW_IA_PARAM.GET_BEIAQY01_DIVCODE;
+    vTmp_status         := PKG_BW_IA_PARAM.GET_BEIAQY01_STATUS;
+    vTmp_pending_div    := PKG_BW_IA_PARAM.GET_BEIAQY01_PENDING;
+
+    IF vTmp_status = 'SUCCESS' THEN
+        BEGIN
+            OPEN rRefCur FOR
+                 SELECT   t.dstparent_loc_code,
+                          t.dstloc_code,
+                          t.dstloc_name,
+                          SUM (NVL (t.total_send, 0)) total_send,
+                          SUM (NVL (t.success, 0)) total_success,
+                          SUM (NVL (t.success_cur, 0)) total_success_cur,
+                          SUM (NVL (t.success_oth, 0)) total_success_oth,
+                          SUM (NVL (t.on_process, 0)) total_on_process,
+                          SUM (NVL (t.cs_rej, 0) + NVL (t.at_rej, 0)) total_rej
+                   FROM   (SELECT   rx.dstparent_loc_code,
+                                    rx.dstloc_code,
+                                    rx.dstloc_name,
+                                    b.loc_code,
+                                    b.appt_campaign,
+                                    1 total_send,
+                                    CASE WHEN b.appt_campaign = ms.repappt_campaign THEN 1 ELSE 0 END success_cur,
+                                    CASE WHEN b.appt_campaign != ms.repappt_campaign THEN 1 ELSE 0 END success_oth,
+                                    CASE
+                                       WHEN SUBSTR (TRIM (b.rep_code), 1, 1) IN ('1','2','3','4','5','6','7','8','9','0') THEN  1  ELSE  0  END success,
+                                    CASE
+                                       WHEN    b.rep_code IS NULL
+                                            OR b.rep_code = 'AUTO'
+                                            OR b.rep_code = 'SEND'
+                                            OR rep_code   = 'PENDING'
+                                       THEN  1  ELSE  0  END  on_process,
+                                    CASE WHEN b.rep_code = 'CS-REJECT' THEN 1 ELSE 0 END  cs_rej,
+                                    CASE WHEN b.rep_code = 'AT-REJECT' THEN 1 ELSE 0 END  at_rej
+                             FROM   bw_riloc rx INNER JOIN bw_rirep b ON b.loc_code = rx.dstloc_code
+                                           LEFT OUTER JOIN ms_representative ms ON ms.reprep_code = lpad(b.rep_code,10,'0') AND ms.repou_code = '000'
+                            WHERE   trim(rx.dstparent_loc_code )    =       vTmp_divcode
+                            AND     UPPER (b.loc_code)              NOT IN ('T001', '0999')
+                            AND     SUBSTR (b.appt_campaign, 3, 4) || SUBSTR (b.appt_campaign, 1, 2)  BETWEEN NVL(nTmp_camp_f,'000000')
+                                                                                                      AND     NVL(nTmp_camp_t,'999999')
+                       ) t
+               GROUP BY   t.dstparent_loc_code,
+                          t.dstloc_code,
+                          t.dstloc_name
+               HAVING SUM (NVL (t.success, 0)) > 0 ;
+
+        END;
+    ELSIF vTmp_status = 'ON_PROCESS' THEN
+        BEGIN
+            OPEN rRefCur FOR
+                 SELECT   t.dstparent_loc_code,
+                          t.dstloc_code,
+                          t.dstloc_name,
+                          SUM (NVL (t.total_send, 0)) total_send,
+                          SUM (NVL (t.success, 0)) total_success,
+                          SUM (NVL (t.success_cur, 0)) total_success_cur,
+                          SUM (NVL (t.success_oth, 0)) total_success_oth,
+                          SUM (NVL (t.on_process, 0)) total_on_process,
+                          SUM (NVL (t.cs_rej, 0) + NVL (t.at_rej, 0)) total_rej
+                   FROM   (SELECT   rx.dstparent_loc_code,
+                                    rx.dstloc_code,
+                                    rx.dstloc_name,
+                                    b.loc_code,
+                                    b.appt_campaign,
+                                    1 total_send,
+                                    CASE WHEN b.appt_campaign = ms.repappt_campaign THEN 1 ELSE 0 END success_cur,
+                                    CASE WHEN b.appt_campaign != ms.repappt_campaign THEN 1 ELSE 0 END success_oth,
+                                    CASE
+                                       WHEN SUBSTR (TRIM (b.rep_code), 1, 1) IN ('1','2','3','4','5','6','7','8','9','0') THEN  1  ELSE  0  END success,
+                                    CASE
+                                       WHEN    b.rep_code IS NULL
+                                            OR b.rep_code = 'AUTO'
+                                            OR b.rep_code = 'SEND'
+                                            OR rep_code   = 'PENDING'
+                                       THEN  1  ELSE  0  END  on_process,
+                                    CASE WHEN b.rep_code = 'CS-REJECT' THEN 1 ELSE 0 END  cs_rej,
+                                    CASE WHEN b.rep_code = 'AT-REJECT' THEN 1 ELSE 0 END  at_rej
+                             FROM   bw_riloc rx INNER JOIN bw_rirep b ON b.loc_code = rx.dstloc_code
+                                           LEFT OUTER JOIN ms_representative ms ON ms.reprep_code = lpad(b.rep_code,10,'0') AND ms.repou_code = '000'
+                            WHERE   trim(rx.dstparent_loc_code )    =       vTmp_divcode
+                            AND     UPPER (b.loc_code)              NOT IN ('T001', '0999')
+                            AND     SUBSTR (b.appt_campaign, 3, 4) || SUBSTR (b.appt_campaign, 1, 2)  BETWEEN NVL(nTmp_camp_f,'000000')
+                                                                                                      AND     NVL(nTmp_camp_t,'999999')
+                       ) t
+               GROUP BY   t.dstparent_loc_code,
+                          t.dstloc_code,
+                          t.dstloc_name
+               HAVING SUM (NVL (t.on_process, 0)) > 0 ;
+
+        END;
+    ELSIF vTmp_status = 'REJECT' THEN
+        BEGIN
+            OPEN rRefCur FOR
+                 SELECT   t.dstparent_loc_code,
+                          t.dstloc_code,
+                          t.dstloc_name,
+                          SUM (NVL (t.total_send, 0)) total_send,
+                          SUM (NVL (t.success, 0)) total_success,
+                          SUM (NVL (t.success_cur, 0)) total_success_cur,
+                          SUM (NVL (t.success_oth, 0)) total_success_oth,
+                          SUM (NVL (t.on_process, 0)) total_on_process,
+                          SUM (NVL (t.cs_rej, 0) + NVL (t.at_rej, 0)) total_rej
+                   FROM   (SELECT   rx.dstparent_loc_code,
+                                    rx.dstloc_code,
+                                    rx.dstloc_name,
+                                    b.loc_code,
+                                    b.appt_campaign,
+                                    1 total_send,
+                                    CASE WHEN b.appt_campaign = ms.repappt_campaign THEN 1 ELSE 0 END success_cur,
+                                    CASE WHEN b.appt_campaign != ms.repappt_campaign THEN 1 ELSE 0 END success_oth,
+                                    CASE
+                                       WHEN SUBSTR (TRIM (b.rep_code), 1, 1) IN ('1','2','3','4','5','6','7','8','9','0') THEN  1  ELSE  0  END success,
+                                    CASE
+                                       WHEN    b.rep_code IS NULL
+                                            OR b.rep_code = 'AUTO'
+                                            OR b.rep_code = 'SEND'
+                                            OR rep_code = 'PENDING'
+                                       THEN  1  ELSE  0  END  on_process,
+                                    CASE WHEN b.rep_code = 'CS-REJECT' THEN 1 ELSE 0 END  cs_rej,
+                                    CASE WHEN b.rep_code = 'AT-REJECT' THEN 1 ELSE 0 END  at_rej
+                             FROM   bw_riloc rx INNER JOIN bw_rirep b ON b.loc_code = rx.dstloc_code
+                                           LEFT OUTER JOIN ms_representative ms ON ms.reprep_code = lpad(b.rep_code,10,'0') AND ms.repou_code = '000'
+                            WHERE   trim(rx.dstparent_loc_code )    =       vTmp_divcode
+                            AND     UPPER (b.loc_code)              NOT IN ('T001', '0999')
+                            AND     SUBSTR (b.appt_campaign, 3, 4) || SUBSTR (b.appt_campaign, 1, 2)  BETWEEN NVL(nTmp_camp_f,'000000')
+                                                                                                      AND     NVL(nTmp_camp_t,'999999')
+                       ) t
+               GROUP BY   t.dstparent_loc_code,
+                          t.dstloc_code,
+                          t.dstloc_name
+               HAVING SUM (NVL (t.cs_rej, 0)) > 0 ;
+
+        END;
+    ELSE
+
+        BEGIN
+            OPEN rRefCur FOR
+                 SELECT   t.dstparent_loc_code,
+                          t.dstloc_code,
+                          t.dstloc_name,
+                          SUM (NVL (t.total_send, 0)) total_send,
+                          SUM (NVL (t.success, 0)) total_success,
+                          SUM (NVL (t.success_cur, 0)) total_success_cur,
+                          SUM (NVL (t.success_oth, 0)) total_success_oth,
+                          SUM (NVL (t.on_process, 0)) total_on_process,
+                          SUM (NVL (t.cs_rej, 0) + NVL (t.at_rej, 0)) total_rej
+                   FROM   (SELECT   rx.dstparent_loc_code,
+                                    rx.dstloc_code,
+                                    rx.dstloc_name,
+                                    b.loc_code,
+                                    b.appt_campaign,
+                                    1 total_send,
+                                    CASE WHEN b.appt_campaign = ms.repappt_campaign THEN 1 ELSE 0 END success_cur,
+                                    CASE WHEN b.appt_campaign != ms.repappt_campaign THEN 1 ELSE 0 END success_oth,
+                                    CASE
+                                       WHEN SUBSTR (TRIM (b.rep_code), 1, 1) IN ('1','2','3','4','5','6','7','8','9','0') THEN  1  ELSE  0  END success,
+                                    CASE
+                                       WHEN    b.rep_code IS NULL
+                                            OR b.rep_code = 'AUTO'
+                                            OR b.rep_code = 'SEND'
+                                            OR rep_code = 'PENDING'
+                                       THEN  1  ELSE  0  END  on_process,
+                                    CASE WHEN b.rep_code = 'CS-REJECT' THEN 1 ELSE 0 END  cs_rej,
+                                    CASE WHEN b.rep_code = 'AT-REJECT' THEN 1 ELSE 0 END  at_rej
+                             FROM   bw_riloc rx INNER JOIN bw_rirep b ON b.loc_code = rx.dstloc_code
+                                           LEFT OUTER JOIN ms_representative ms ON ms.reprep_code = lpad(b.rep_code,10,'0') AND ms.repou_code = '000'
+                            WHERE   trim(rx.dstparent_loc_code )    =       vTmp_divcode
+                            AND     UPPER (b.loc_code)              NOT IN ('T001', '0999')
+                            AND     SUBSTR (b.appt_campaign, 3, 4) || SUBSTR (b.appt_campaign, 1, 2)  BETWEEN NVL(nTmp_camp_f,'000000')
+                                                                                                      AND     NVL(nTmp_camp_t,'999999')
+                       ) t
+               GROUP BY   t.dstparent_loc_code,
+                          t.dstloc_code,
+                          t.dstloc_name;
+
+
+        END;
+
+    END IF;
+
+
+
+
+
+    LOOP
+        fetch rRefCur bulk collect into TabOut limit 10000;
+        exit when TabOut.count = 0;
+        FOR i in 1 .. TabOut.count LOOP
+            pipe row (TabOut(i));
+        END LOOP;
+    END LOOP;
+
+END;
+
+-----------------------------------------------------------------------------
+
+FUNCTION FPU_TAB_BEIAQY01_DIST2  RETURN TAB_BEIAQY02_DIST  pipelined  IS
+
+    TabOut              TAB_BEIAQY02_DIST;
+    rRefCur             sys_refcursor;
+
+    vTmp_divcode        VARCHAR2(5);
+    nTmp_camp_f         VARCHAR2(10);
+    nTmp_camp_t         VARCHAR2(10);
+    vTmp_status         VARCHAR2(20);
+    vTmp_pending_div    VARCHAR2(1);
+
+
+
+BEGIN
+    nTmp_camp_f         := PKG_BW_IA_PARAM.GET_BEIAQY01_CAMP_F;
+    nTmp_camp_t         := PKG_BW_IA_PARAM.GET_BEIAQY01_CAMP_T;
+    vTmp_divcode        := PKG_BW_IA_PARAM.GET_BEIAQY01_DIVCODE;
+    vTmp_status         := PKG_BW_IA_PARAM.GET_BEIAQY01_STATUS;
+    vTmp_pending_div    := PKG_BW_IA_PARAM.GET_BEIAQY01_PENDING;
+
+--    if vTmp_status is null then vTmp_status := ''; end if;
+vTmp_status := 'SUCCESS';
+vTmp_divcode := '002';
+    IF vTmp_status = 'SUCCESS' THEN
+        BEGIN
+            OPEN rRefCur FOR
+                 SELECT   t.dstparent_loc_code,
+                          t.dstloc_code,
+                          t.dstloc_name,
+                          SUM (NVL (t.total_send, 0)) total_send,
+                          SUM (NVL (t.success, 0)) total_success,
+                          SUM (NVL (t.success_cur, 0)) total_success_cur,
+                          SUM (NVL (t.success_oth, 0)) total_success_oth,
+                          SUM (NVL (t.on_process, 0)) total_on_process,
+                          SUM (NVL (t.cs_rej, 0) + NVL (t.at_rej, 0)) total_rej
+                   FROM   (SELECT   rx.dstparent_loc_code,
+                                    rx.dstloc_code,
+                                    rx.dstloc_name,
+                                    b.loc_code,
+                                    b.appt_campaign,
+                                    1 total_send,
+                                    CASE WHEN b.appt_campaign = ms.repappt_campaign THEN 1 ELSE 0 END success_cur,
+                                    CASE WHEN b.appt_campaign != ms.repappt_campaign THEN 1 ELSE 0 END success_oth,
+                                    CASE
+                                       WHEN SUBSTR (TRIM (b.rep_code), 1, 1) IN ('1','2','3','4','5','6','7','8','9','0') THEN  1  ELSE  0  END success,
+                                    CASE
+                                       WHEN    b.rep_code IS NULL
+                                            OR b.rep_code = 'AUTO'
+                                            OR b.rep_code = 'SEND'
+                                            OR rep_code   = 'PENDING'
+                                       THEN  1  ELSE  0  END  on_process,
+                                    CASE WHEN b.rep_code = 'CS-REJECT' THEN 1 ELSE 0 END  cs_rej,
+                                    CASE WHEN b.rep_code = 'AT-REJECT' THEN 1 ELSE 0 END  at_rej
+                             FROM   bw_riloc rx INNER JOIN bw_rirep b ON b.loc_code = rx.dstloc_code
+                                           LEFT OUTER JOIN ms_representative ms ON ms.reprep_code = lpad(b.rep_code,10,'0') AND ms.repou_code = '000'
+                            WHERE   trim(rx.dstparent_loc_code )    =       vTmp_divcode
+                            AND     UPPER (b.loc_code)              NOT IN ('T001', '0999')
+                            AND     SUBSTR (b.appt_campaign, 3, 4) || SUBSTR (b.appt_campaign, 1, 2)  BETWEEN NVL(nTmp_camp_f,'000000')
+                                                                                                      AND     NVL(nTmp_camp_t,'999999')
+                       ) t
+               GROUP BY   t.dstparent_loc_code,
+                          t.dstloc_code,
+                          t.dstloc_name
+               HAVING SUM (NVL (t.success, 0)) > 0 ;
+
+        END;
+    ELSIF vTmp_status = 'ON_PROCESS' THEN
+        BEGIN
+            OPEN rRefCur FOR
+                 SELECT   t.dstparent_loc_code,
+                          t.dstloc_code,
+                          t.dstloc_name,
+                          SUM (NVL (t.total_send, 0)) total_send,
+                          SUM (NVL (t.success, 0)) total_success,
+                          SUM (NVL (t.success_cur, 0)) total_success_cur,
+                          SUM (NVL (t.success_oth, 0)) total_success_oth,
+                          SUM (NVL (t.on_process, 0)) total_on_process,
+                          SUM (NVL (t.cs_rej, 0) + NVL (t.at_rej, 0)) total_rej
+                   FROM   (SELECT   rx.dstparent_loc_code,
+                                    rx.dstloc_code,
+                                    rx.dstloc_name,
+                                    b.loc_code,
+                                    b.appt_campaign,
+                                    1 total_send,
+                                    CASE WHEN b.appt_campaign = ms.repappt_campaign THEN 1 ELSE 0 END success_cur,
+                                    CASE WHEN b.appt_campaign != ms.repappt_campaign THEN 1 ELSE 0 END success_oth,
+                                    CASE
+                                       WHEN SUBSTR (TRIM (b.rep_code), 1, 1) IN ('1','2','3','4','5','6','7','8','9','0') THEN  1  ELSE  0  END success,
+                                    CASE
+                                       WHEN    b.rep_code IS NULL
+                                            OR b.rep_code = 'AUTO'
+                                            OR b.rep_code = 'SEND'
+                                            OR rep_code   = 'PENDING'
+                                       THEN  1  ELSE  0  END  on_process,
+                                    CASE WHEN b.rep_code = 'CS-REJECT' THEN 1 ELSE 0 END  cs_rej,
+                                    CASE WHEN b.rep_code = 'AT-REJECT' THEN 1 ELSE 0 END  at_rej
+                             FROM   bw_riloc rx INNER JOIN bw_rirep b ON b.loc_code = rx.dstloc_code
+                                           LEFT OUTER JOIN ms_representative ms ON ms.reprep_code = lpad(b.rep_code,10,'0') AND ms.repou_code = '000'
+                            WHERE   trim(rx.dstparent_loc_code )    =       vTmp_divcode
+                            AND     UPPER (b.loc_code)              NOT IN ('T001', '0999')
+                            AND     SUBSTR (b.appt_campaign, 3, 4) || SUBSTR (b.appt_campaign, 1, 2)  BETWEEN NVL(nTmp_camp_f,'000000')
+                                                                                                      AND     NVL(nTmp_camp_t,'999999')
+                       ) t
+               GROUP BY   t.dstparent_loc_code,
+                          t.dstloc_code,
+                          t.dstloc_name
+               HAVING SUM (NVL (t.on_process, 0)) > 0 ;
+
+        END;
+    ELSIF vTmp_status = 'REJECT' THEN
+        BEGIN
+            OPEN rRefCur FOR
+                 SELECT   t.dstparent_loc_code,
+                          t.dstloc_code,
+                          t.dstloc_name,
+                          SUM (NVL (t.total_send, 0)) total_send,
+                          SUM (NVL (t.success, 0)) total_success,
+                          SUM (NVL (t.success_cur, 0)) total_success_cur,
+                          SUM (NVL (t.success_oth, 0)) total_success_oth,
+                          SUM (NVL (t.on_process, 0)) total_on_process,
+                          SUM (NVL (t.cs_rej, 0) + NVL (t.at_rej, 0)) total_rej
+                   FROM   (SELECT   rx.dstparent_loc_code,
+                                    rx.dstloc_code,
+                                    rx.dstloc_name,
+                                    b.loc_code,
+                                    b.appt_campaign,
+                                    1 total_send,
+                                    CASE WHEN b.appt_campaign = ms.repappt_campaign THEN 1 ELSE 0 END success_cur,
+                                    CASE WHEN b.appt_campaign != ms.repappt_campaign THEN 1 ELSE 0 END success_oth,
+                                    CASE
+                                       WHEN SUBSTR (TRIM (b.rep_code), 1, 1) IN ('1','2','3','4','5','6','7','8','9','0') THEN  1  ELSE  0  END success,
+                                    CASE
+                                       WHEN    b.rep_code IS NULL
+                                            OR b.rep_code = 'AUTO'
+                                            OR b.rep_code = 'SEND'
+                                            OR rep_code = 'PENDING'
+                                       THEN  1  ELSE  0  END  on_process,
+                                    CASE WHEN b.rep_code = 'CS-REJECT' THEN 1 ELSE 0 END  cs_rej,
+                                    CASE WHEN b.rep_code = 'AT-REJECT' THEN 1 ELSE 0 END  at_rej
+                             FROM   bw_riloc rx INNER JOIN bw_rirep b ON b.loc_code = rx.dstloc_code
+                                           LEFT OUTER JOIN ms_representative ms ON ms.reprep_code = lpad(b.rep_code,10,'0') AND ms.repou_code = '000'
+                            WHERE   trim(rx.dstparent_loc_code )    =       vTmp_divcode
+                            AND     UPPER (b.loc_code)              NOT IN ('T001', '0999')
+                            AND     SUBSTR (b.appt_campaign, 3, 4) || SUBSTR (b.appt_campaign, 1, 2)  BETWEEN NVL(nTmp_camp_f,'000000')
+                                                                                                      AND     NVL(nTmp_camp_t,'999999')
+                       ) t
+               GROUP BY   t.dstparent_loc_code,
+                          t.dstloc_code,
+                          t.dstloc_name
+               HAVING SUM (NVL (t.cs_rej, 0)) > 0 ;
+
+        END;
+    ELSE
+
+        BEGIN
+            OPEN rRefCur FOR
+                 SELECT   t.dstparent_loc_code,
+                          t.dstloc_code,
+                          t.dstloc_name,
+                          SUM (NVL (t.total_send, 0)) total_send,
+                          SUM (NVL (t.success, 0)) total_success,
+                          SUM (NVL (t.success_cur, 0)) total_success_cur,
+                          SUM (NVL (t.success_oth, 0)) total_success_oth,
+                          SUM (NVL (t.on_process, 0)) total_on_process,
+                          SUM (NVL (t.cs_rej, 0) + NVL (t.at_rej, 0)) total_rej
+                   FROM   (SELECT   rx.dstparent_loc_code,
+                                    rx.dstloc_code,
+                                    rx.dstloc_name,
+                                    b.loc_code,
+                                    b.appt_campaign,
+                                    1 total_send,
+                                    CASE WHEN b.appt_campaign = ms.repappt_campaign THEN 1 ELSE 0 END success_cur,
+                                    CASE WHEN b.appt_campaign != ms.repappt_campaign THEN 1 ELSE 0 END success_oth,
+                                    CASE
+                                       WHEN SUBSTR (TRIM (b.rep_code), 1, 1) IN ('1','2','3','4','5','6','7','8','9','0') THEN  1  ELSE  0  END success,
+                                    CASE
+                                       WHEN    b.rep_code IS NULL
+                                            OR b.rep_code = 'AUTO'
+                                            OR b.rep_code = 'SEND'
+                                            OR rep_code = 'PENDING'
+                                       THEN  1  ELSE  0  END  on_process,
+                                    CASE WHEN b.rep_code = 'CS-REJECT' THEN 1 ELSE 0 END  cs_rej,
+                                    CASE WHEN b.rep_code = 'AT-REJECT' THEN 1 ELSE 0 END  at_rej
+                             FROM   bw_riloc rx INNER JOIN bw_rirep b ON b.loc_code = rx.dstloc_code
+                                           LEFT OUTER JOIN ms_representative ms ON ms.reprep_code = lpad(b.rep_code,10,'0') AND ms.repou_code = '000'
+                            WHERE   trim(rx.dstparent_loc_code )    =       vTmp_divcode
+                            AND     UPPER (b.loc_code)              NOT IN ('T001', '0999')
+                            AND     SUBSTR (b.appt_campaign, 3, 4) || SUBSTR (b.appt_campaign, 1, 2)  BETWEEN NVL(nTmp_camp_f,'000000')
+                                                                                                      AND     NVL(nTmp_camp_t,'999999')
+                       ) t
+               GROUP BY   t.dstparent_loc_code,
+                          t.dstloc_code,
+                          t.dstloc_name;
+
+
+        END;
+
+    END IF;
+
+
+
+
+
+    LOOP
+        fetch rRefCur bulk collect into TabOut limit 10000;
+        exit when TabOut.count = 0;
+        FOR i in 1 .. TabOut.count LOOP
+            pipe row (TabOut(i));
+        END LOOP;
+    END LOOP;
+
+END;
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+END;
+/

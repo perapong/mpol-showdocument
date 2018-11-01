@@ -1,0 +1,2645 @@
+CREATE OR REPLACE PACKAGE pkgom_short_product
+AS
+     PROCEDURE calAverage_OnHand ( pi_ou_code   varchar2,
+                                                        pi_pc_date   date,
+                                                        pi_user_id    varchar2,
+                                                        pi_prog_id    varchar2);
+
+    FUNCTION getPercentage_bySource ( pi_ou_code   varchar2,
+                                                           pi_pc_date   date,
+                                                           pi_type         varchar2, --- 0 = percentage from table, 1 = percentage for Calculate
+                                                           pi_brand      sa_bal_summary.accbrand%type,
+                                                           pi_source     sa_bal_summary.accsource%type,
+                                                           pi_fscode     db_product_dtl.pdtfinished_code%type) return number;
+
+    FUNCTION calweight_unit (
+        p_unit        NUMBER,
+        p_tot_unit    NUMBER) RETURN NUMBER;
+
+    FUNCTION calestimate_unit (
+        p_curr_camp    om_billing_dtl.bdtcampaign%TYPE,
+        p_camp         om_billing_dtl.bdtcampaign%TYPE,
+        p_brand        om_billing_dtl.bdtbrand%TYPE,
+        p_unit         NUMBER
+    )
+        RETURN NUMBER;
+
+    FUNCTION calestimate_factor (
+        p_curr_camp    om_billing_dtl.bdtcampaign%TYPE,
+        p_camp         om_billing_dtl.bdtcampaign%TYPE,
+        p_curr_date    DATE,
+        p_unit         NUMBER
+    )
+        RETURN NUMBER;
+
+    FUNCTION getestimate_sales_unit (
+        p_ou           om_billing_dtl.bdtou_code%TYPE,
+        p_curr_camp    om_billing_dtl.bdtcampaign%TYPE,
+        p_camp         om_billing_dtl.bdtcampaign%TYPE,
+        p_bill         om_billing_dtl.bdtbill_code%TYPE,
+        p_fs           om_billing_dtl.bdtfinished_code%TYPE,
+        p_brand        om_billing_dtl.bdtbrand%TYPE
+    )
+        RETURN NUMBER;
+
+    FUNCTION getestimate_actual_unit (
+        p_ou            om_billing_dtl.bdtou_code%TYPE,
+        p_curr_camp     om_billing_dtl.bdtcampaign%TYPE,
+        p_camp          om_billing_dtl.bdtcampaign%TYPE,
+        p_bill          om_billing_dtl.bdtbill_code%TYPE,
+        p_fs            om_billing_dtl.bdtfinished_code%TYPE,
+        p_brand         om_billing_dtl.bdtbrand%TYPE,
+        p_curr_date     DATE,
+        p_prior_date    DATE DEFAULT NULL
+    )
+        RETURN NUMBER;
+
+    FUNCTION getestimate_accum_unit (
+        p_ou           om_billing_dtl.bdtou_code%TYPE,
+        p_curr_camp    om_billing_dtl.bdtcampaign%TYPE,
+        p_camp         om_billing_dtl.bdtcampaign%TYPE,
+        p_bill         om_billing_dtl.bdtbill_code%TYPE,
+        p_fs           om_billing_dtl.bdtfinished_code%TYPE,
+        p_brand        om_billing_dtl.bdtbrand%TYPE
+    )
+        RETURN NUMBER;
+
+    FUNCTION getoperation_day (
+        p_ou      db_mailplan.mplou_code%TYPE,
+        p_camp    db_mailplan.mplcampaign%TYPE
+    )
+        RETURN NUMBER;
+
+    FUNCTION geton_hand ( p_ou_code    VARCHAR2,
+                                        p_fs_code    VARCHAR2 ) RETURN NUMBER;
+
+    FUNCTION getAvailable ( p_ou_code    VARCHAR2,
+                                         p_fs_code     VARCHAR2,
+                                         p_wdate       DATE,
+                                         p_camp        VARCHAR2 ) RETURN NUMBER;
+
+    FUNCTION geton_order ( p_ou_code     pp_ctc_dtl.pcdou_code%TYPE,
+                                         p_fs_code      pp_ctc_dtl.pcdfs_code%TYPE,
+                                         p_due_date    pp_ctc_dtl.pcddue_date%TYPE ) RETURN NUMBER;
+
+    FUNCTION getmax_fs_seq (
+        p_ou_code    om_short_hdr.shtou_code%TYPE,
+        p_fs_code    om_short_hdr.shtfinished_code%TYPE
+    )
+        RETURN om_short_hdr.shtfinished_seq%TYPE;
+
+    FUNCTION getmax_short_seq (
+        p_ou_code    om_short_dtl.shdou_code%TYPE,
+        p_fs_code    om_short_dtl.shdfinished_code%TYPE,
+        p_fs_seq     om_short_dtl.shdfinished_seq%TYPE
+    )
+        RETURN om_short_dtl.shdshort_seq%TYPE;
+
+    FUNCTION getgp_percent (
+        p_ou_code      mk_saleplan_dtl.spdou_code%TYPE,
+        p_brand        mk_saleplan_dtl.spdbrand%TYPE,
+        p_camp_code    mk_saleplan_dtl.spdplan_campaign%TYPE,
+        p_fs_code      mk_saleplan_dtl.spdfinished_code%TYPE
+    )
+        RETURN mk_saleplan_dtl.spdcur_gp_percent%TYPE;
+
+    FUNCTION getshort_limit (
+        p_ou_code      om_short_dtl.shdou_code%TYPE,
+        p_fs_code      om_short_dtl.shdfinished_code%TYPE,
+        p_sdate        om_short_dtl.shdeff_sdate%TYPE,
+        p_camp_code    om_short_dtl.shdbill_campaign%TYPE,
+        p_bill_code    om_short_dtl.shdbill_code%TYPE
+    )
+        RETURN om_short_dtl.shdshort_limit%TYPE;
+
+    FUNCTION getsub_limit (
+        p_ou_code      om_short_sub.shsou_code%TYPE,
+        p_fs_code      om_short_sub.shsfinished_code%TYPE,
+        p_sdate        om_short_sub.shseff_sdate%TYPE,
+        p_camp_code    om_short_sub.shsbill_campaign%TYPE,
+        p_bill_code    om_short_sub.shsbill_code%TYPE
+    )
+        RETURN om_short_sub.shssub_limit%TYPE;
+
+    FUNCTION getprior_ship_date (p_curr_date DATE)
+        RETURN DATE;
+
+    FUNCTION getnext_ship_date (p_curr_date DATE)
+        RETURN DATE;
+
+    PROCEDURE getcamp_date_period (
+        p_ou_code     IN     db_campaign.cpgou_code%TYPE,
+        p_camp_code   IN     db_campaign.cpgcampaign_code%TYPE,
+        p_eff_sdate      OUT db_campaign.cpgeff_sdate%TYPE,
+        p_eff_edate      OUT db_campaign.cpgeff_edate%TYPE
+    );
+
+    PROCEDURE getcamp_code_period (
+        p_ou_code     IN     db_campaign.cpgou_code%TYPE,
+        p_curr_camp   IN     db_campaign.cpgcampaign_code%TYPE,
+        p_prev_camp      OUT db_campaign.cpgcampaign_code%TYPE,
+        p_next_camp      OUT db_campaign.cpgcampaign_code%TYPE
+    );
+
+    PROCEDURE getdefault_desc (
+        p_reason     OUT VARCHAR2,
+        p_sht_code   OUT VARCHAR2,
+        p_sht_msg    OUT VARCHAR2
+    );
+
+    FUNCTION fndcurrentshort_unit (
+        p_ou_code          om_short_dtl_act.shaou_code%TYPE,
+        p_finished_code    om_short_dtl_act.shafinished_code%TYPE,
+        p_finished_seq     om_short_dtl_act.shafinished_seq%TYPE,
+        p_short_seq        om_short_dtl_act.shashort_seq%TYPE,
+        p_bill_campaign    om_short_dtl_act.shabill_campaign%TYPE,
+        p_bill_code        om_short_dtl_act.shabill_code%TYPE,
+        p_eff_sdate        om_short_dtl_act.shaeff_sdate%TYPE,
+        p_eff_edate        om_short_dtl_act.shaeff_sdate%TYPE
+    )
+        RETURN NUMBER;
+
+    FUNCTION fndcurrentLoss_unit (
+        p_ou_code          om_short_dtl_act.shaou_code%TYPE,
+        p_finished_code    om_short_dtl_act.shafinished_code%TYPE,
+        p_finished_seq     om_short_dtl_act.shafinished_seq%TYPE,
+        p_short_seq        om_short_dtl_act.shashort_seq%TYPE,
+        p_bill_campaign    om_short_dtl_act.shabill_campaign%TYPE,
+        p_bill_code        om_short_dtl_act.shabill_code%TYPE,
+        p_eff_sdate        om_short_dtl_act.shaeff_sdate%TYPE,
+        p_eff_edate        om_short_dtl_act.shaeff_sdate%TYPE
+    )
+        RETURN NUMBER;
+
+    FUNCTION fndcurrentsub_unit (
+        p_ou_code          om_short_sub_act.shbou_code%TYPE,
+        p_finished_code    om_short_sub_act.shbfinished_code%TYPE,
+        p_finished_seq     om_short_sub_act.shbfinished_seq%TYPE,
+        p_short_seq        om_short_sub_act.shbshort_seq%TYPE,
+        p_bill_campaign    om_short_sub_act.shbbill_campaign%TYPE,
+        p_bill_code        om_short_sub_act.shbbill_code%TYPE,
+        p_sub_campaign     om_short_sub_act.shbsubbill_campaign%TYPE,
+        p_sub_bill         om_short_sub_act.shbsubbill_code%TYPE,
+        p_eff_sdate        om_short_sub_act.shbeff_sdate%TYPE,
+        p_eff_edate        om_short_sub_act.shbeff_sdate%TYPE
+    )
+        RETURN NUMBER;
+
+    FUNCTION fndcurrentfree_unit (
+        p_ou_code          om_short_sub_act.shbou_code%TYPE,
+        p_finished_code    om_short_sub_act.shbfinished_code%TYPE,
+        p_bill_campaign    om_short_sub_act.shbbill_campaign%TYPE,
+        p_bill_code        om_short_sub_act.shbbill_code%TYPE,
+        p_sub_campaign     om_short_sub_act.shbsubbill_campaign%TYPE,
+        p_sub_bill         om_short_sub_act.shbsubbill_code%TYPE,
+        p_eff_sdate        om_short_sub_act.shbeff_sdate%TYPE,
+        p_eff_edate        om_short_sub_act.shbeff_sdate%TYPE
+    )
+        RETURN NUMBER;
+
+    FUNCTION check_short_status (
+        p_ou_code      om_short_dtl.shdou_code%TYPE,
+        p_bill_camp    om_short_dtl.shdbill_campaign%TYPE,
+        p_bill_code    om_short_dtl.shdbill_code%TYPE
+    )
+        RETURN CHAR;
+
+    FUNCTION chkshortage_limit (
+        p_ou_code      om_short_dtl.shdou_code%TYPE,
+        p_bill_camp    om_short_dtl.shdbill_campaign%TYPE,
+        p_bill_code    om_short_dtl.shdbill_code%TYPE,
+        p_curr_date    om_short_dtl.shdeff_sdate%TYPE
+    )
+        RETURN NUMBER;
+
+    FUNCTION chkins_short_hdr (
+        p_ou_code    om_short_hdr.shtou_code%TYPE,
+        p_fs_code    om_short_hdr.shtfinished_code%TYPE
+    )
+        RETURN om_short_hdr.shtfinished_seq%TYPE;
+
+    FUNCTION chkins_short_dtl_old (
+        p_ou_code       om_short_dtl.shdou_code%TYPE,
+        p_fs_code       om_short_dtl.shdfinished_code%TYPE,
+        p_fs_seq        om_short_dtl.shdfinished_seq%TYPE,
+        p_camp_code     om_short_dtl.shdbill_campaign%TYPE,
+        p_bill_code     om_short_dtl.shdbill_code%TYPE,
+        p_short_code    om_short_dtl.shdshort_code%TYPE,
+        p_back_camp     om_short_dtl.shdback_campaign%TYPE,
+        p_max_ord       om_short_dtl.shdmaximum_ord%TYPE
+    )
+        RETURN om_short_dtl.shdshort_seq%TYPE;
+
+    FUNCTION chkins_short_dtl (
+        p_ou_code         om_short_dtl.shdou_code%TYPE,
+        p_fs_code         om_short_dtl.shdfinished_code%TYPE,
+        p_fs_seq          om_short_dtl.shdfinished_seq%TYPE,
+        p_eff_sdate       om_short_dtl.shdeff_sdate%TYPE,
+        p_bill_camp       om_short_dtl.shdbill_campaign%TYPE,
+        p_bill_code       om_short_dtl.shdbill_code%TYPE,
+        p_effdtl_sdate    om_short_dtl.shdeffdtl_sdate%TYPE,
+        p_effdtl_edate    om_short_dtl.shdeffdtl_edate%TYPE,
+        p_dist_status     om_short_dtl.shdbydistrict_status%TYPE DEFAULT '0',
+        p_rept_status     om_short_dtl.shdbyrept_status%TYPE DEFAULT '0',
+        p_act_status      om_short_dtl.shdbyactivity_status%TYPE DEFAULT '0',
+        p_flag1           om_short_dtl.shdflag1%TYPE DEFAULT '1',
+        p_flag2           om_short_dtl.shdflag2%TYPE DEFAULT '1',
+        p_flag3           om_short_dtl.shdflag3%TYPE DEFAULT '1',
+        p_flag           NUMBER DEFAULT 1 --> 0=For process day end, 1=For program short and sub.
+    )
+        RETURN om_short_dtl.shdshort_seq%TYPE;
+
+    PROCEDURE delom_short_fscode (p_session_id NUMBER);
+
+    PROCEDURE prepareauto_short (
+        p_ou_code       om_short_fscode.sfsou_code%TYPE,
+        p_camp_code     om_short_fscode.sfsbill_campaign%TYPE,
+        p_fs_code       om_short_fscode.sfsfinished_code%TYPE,
+        p_eff_sdate     om_short_fscode.sfseff_sdate%TYPE,
+        p_eff_edate     om_short_fscode.sfseff_edate%TYPE,
+        p_short_code    om_short_dtl.shdshort_code%TYPE,
+        p_short_msg     om_short_dtl.shdshort_message%TYPE,
+        p_sub_fs        om_short_fscode.sfssubfinished_code%TYPE,
+        p_sub_bill      om_short_fscode.sfssubbill_code%TYPE,
+        p_curr_date     DATE,
+        p_session_id    NUMBER,
+        p_jobno         su_jobs_regis.jbrjob_no%TYPE,
+        p_flag          NUMBER DEFAULT 1 --> 0=For process day end, 1=For program short and sub.
+    );
+
+    PROCEDURE processauto_short (
+        p_ou_code        om_short_fscode.sfsou_code%TYPE,
+        p_camp_code      om_short_fscode.sfsbill_campaign%TYPE,
+        p_fs_seq         om_short_hdr.shtfinished_seq%TYPE,
+        p_eff_sdate      om_short_fscode.sfseff_sdate%TYPE,
+        p_eff_edate      om_short_fscode.sfseff_edate%TYPE,
+        p_reason_code    om_short_hdr.shtreason_code%TYPE,
+        p_curr_date      DATE,
+        p_user           VARCHAR2,
+        p_prog_id        VARCHAR2,
+        p_session_id     NUMBER,
+        p_jobno          su_jobs_regis.jbrjob_no%TYPE,
+        p_flag           NUMBER DEFAULT 1, --> 0=For process day end, 1=For program short and sub.
+        p_short_seq      om_short_dtl.shdshort_seq%TYPE DEFAULT NULL
+    );
+
+    PROCEDURE processauto_backup (p_curr_date DATE);
+
+    --
+    -- Main Process for Automatic Dayend.
+    --
+    PROCEDURE generateauto_short (
+        p_ou_code       om_short_fscode.sfsou_code%TYPE,
+        p_camp_code     om_short_fscode.sfsbill_campaign%TYPE,
+        p_curr_date     DATE,
+        p_user          VARCHAR2,
+        p_prog_id       VARCHAR2,
+        p_session_id    NUMBER,
+        p_jobno         su_jobs_regis.jbrjob_no%TYPE
+    );
+END pkgom_short_product;
+/
+CREATE OR REPLACE PACKAGE BODY pkgom_short_product
+AS
+/*******************************************************************************
+    NAME:         pkgom_short_product
+    PURPOSE:    Process Auto Short
+    REVISIONS:
+    Ver        Date        Author           Description
+    ---------  ----------  ---------------  ------------------------------------
+    1.0        16/07/2009  Chakrit U.       1. Created this package body.
+    1.1        19/06/2010  Chamaiporn A.    1. Default Short Reason code for Automatic Short Process.
+    1.2        21/12/2010  Chakrit U.       1. Update Check Duplicate Short Detail.
+    1.3        23/12/2010  Chakrit U.       1. Create Function fndCurrentShort_Unit.
+                                            2. Create Function fndCurrentSub_Unit.
+                                            3. Create Function fndCurrentFree_Unit.
+                                            4. Create Function getPrior_Ship_Date.
+                                            5. Create Procedure processAuto_Backup.
+    1.4        29/12/2010  Chakrit U.       1. Create Function calWeight_Unit.
+                                            2. Create Function calEstimate_Unit.
+                                            3. Create Function calEstimate_Factor.
+                                            4. Create Function getEstimate_Sales_Unit.
+                                            5. Create Function getEstimate_Actual_Unit.
+                                            6. Create Function getEstimate_Accum_Unit.
+                                            7. Create Function getOperation_Day.
+                                            8. Update Procedure prepareAuto_Short (Estimate for Sales).
+    1.5        20/05/2011  Chamaiporn       Edit get On-Hand from Inventory and by pass fix location from WH
+*******************************************************************************/
+    s_date           DATE := SYSDATE;
+    e_date           DATE := SYSDATE;
+    s_working_date   DATE := pkgdb_desc.getcurrent_camp_date;
+
+    s_count_suc      NUMBER := 0;
+    s_count_err      NUMBER := 0;
+
+
+   PROCEDURE calAverage_OnHand (   pi_ou_code   VARCHAR2,
+                                                        pi_pc_date   DATE,
+                                                        pi_user_id    VARCHAR2,
+                                                        pi_prog_id    VARCHAR2 )
+    IS
+    BEGIN
+        Begin
+            Delete sa_bal_summary
+            Where accou_code    = pi_ou_code
+                and  accwdate       = pi_pc_date;
+        Exception when others then null;
+        End;
+
+        BEGIN
+            INSERT
+              INTO sa_bal_summary
+                   (accou_code, acccamp, accsource,
+                    accwdate, accbrand, accbrandnet,
+                    accttlnetsales, accpercnet, accpercstd,
+                    accwday, accstdate, accendate,
+                    acccre_by, acccre_date, accprog_id,
+                    accupd_by, accupd_date)
+            SELECT    ou, camp, src,
+                           pc_date, brand, netsales,
+                           ttlnetsales, ROUND (DECODE (nvl(ttlnetsales,0), 0, 0, netsales / ttlnetsales), 4) percnet, percstd,
+                           wday, st_date, en_date,
+                           pi_user_id cre_by, SYSDATE cre_date, pi_prog_id prog_id,
+                           pi_user_id upd_by, SYSDATE upd_date
+              FROM (SELECT     ou, camp, st_date,
+                                         en_date, src, pc_date,
+                                         brand, ttlnetsales, wday,
+                                         NVL (padnum1, 0) / 100 percstd,
+                                         SUM (netsales) netsales
+                        FROM (SELECT pi_ou_code ou,
+                                     cpg.cpgcampaign_code camp,
+                                     cpg.cpgeff_sdate st_date,
+                                     cpg.cpgeff_edate en_date,
+                                     act.actsource src,
+                                     pi_pc_date pc_date,
+                                     act.actbrand brand,
+                                     DECODE (act.actbrand, '2', DECODE (act.actststype, '4', 0, act.actnetsales), act.actnetsales) netsales,
+                                     SUM (DECODE (act.actbrand, '2', DECODE (act.actststype, '4', 0, act.actnetsales), act.actnetsales))
+                                          OVER (PARTITION BY cpg.cpgcampaign_code, cpg.cpgeff_sdate, cpg.cpgeff_edate, act.actbrand) ttlnetsales,
+                                     COUNT (DISTINCT act.actsales_date) OVER (PARTITION BY 1) wday
+                                FROM sa_bal_sales acc,
+                                         sa_bal_actual act,
+                                     (  select cpgcampaign_code, cpgeff_sdate, cpgeff_edate
+                                          from db_campaign
+                                        where cpgou_code = pi_ou_code
+                                            and cpgcampaign_code = (  select pkgdb_desc.getprev_campaign (cpgou_code, cpgcampaign_code, 1)
+                                                                                        from db_campaign
+                                                                                      where cpgou_code = pi_ou_code
+                                                                                        and to_date (pi_pc_date, 'DD/MM/RRRR') between cpgeff_sdate and cpgeff_edate)) cpg
+                               WHERE act.actou_code = pi_ou_code
+                                 AND act.actsales_date BETWEEN cpg.cpgeff_sdate AND cpg.cpgeff_edate
+                                 AND act.actou_code = acc.accou_code
+                                 AND act.actsource = acc.accsource
+                                 AND act.actsales_date = acc.accsales_date
+                                 AND act.actbrand = acc.accbrand) ac,
+                             su_param_dtl pad
+                       WHERE pad.padparam_id = 369
+                         AND pad.padentry_code = brand
+                    GROUP BY ou, camp, st_date, en_date, src, pc_date, brand, ttlnetsales, NVL (padnum1, 0) / 100, wday);
+        Exception when others then null;
+             --dbms_output.put_line('Error > '||sqlerrm);
+        END;
+        commit;
+    END calAverage_OnHand;
+
+    FUNCTION getPercentage_bySource ( pi_ou_code   varchar2,
+                                                           pi_pc_date   date,
+                                                           pi_type         varchar2, --- 0 = percentage from table, 1 = percentage for Calculate
+                                                           pi_brand      sa_bal_summary.accbrand%type,
+                                                           pi_source     sa_bal_summary.accsource%type, -- % All, 1 onlyBSMART
+                                                           pi_fscode     db_product_dtl.pdtfinished_code%type) return number is
+   v_return         number;
+   v_firstBill        date;
+   p_camp          db_campaign.cpgcampaign_code%type;
+   p_wdate         date;
+
+   v_allSale        number;
+   v_ASales        number;
+   v_BSales        number;
+   Begin
+          --- check Factoring on Working Date ---
+          p_camp  := pkgdb_desc.getcurrent_campaign;
+          p_wdate := pkgom_short_product.getprior_ship_date(pkgdb_desc.getcurrent_camp_date);
+
+          Begin
+                select min(mplbilldate)
+                   into v_firstBill
+                 from db_mailplan
+               where mplou_code     = pi_ou_code
+                   and mplyear          = substr(p_camp, 3,4)
+                   and mplcampaign  = p_camp;
+          Exception when no_data_found then null;
+          End;
+
+          If v_firstBill = pkgdb_desc.getcurrent_camp_date or pi_fscode is null Then
+              Begin
+                select sum(case when pi_type = '0' then accpercnet
+                                        when pi_type = '1' then
+                                                                   case when nvl(accpercnet,0) <= nvl(accpercstd,0) then accpercstd
+                                                                   else accpercnet end
+                                 end)
+                   into v_return
+                 from sa_bal_summary
+               where accou_code = pi_ou_code
+                   and accsource   = decode(pi_source, '%', accsource, pi_source)
+                   and accbrand    = pi_brand
+                   and accwdate    = pi_pc_date;
+              Exception when no_data_found then v_return := null;
+              End;
+              If pi_source = '%' then
+                 v_return := 1;
+             End If;
+          Else
+              Begin
+                    select   sum(nvl(dslonschunit, 0) +  nvl(dsloffschunit,0)),
+                               sum(nvl(decode(dslflag, '0', dslonschunit), 0) +  nvl(decode(dslflag, '0', dsloffschunit),0)),
+                               sum(nvl(decode(dslflag, '1', dslonschunit), 0) +  nvl(decode(dslflag, '1', dsloffschunit),0))
+                    into      v_allSale,
+                               v_ASales,
+                               v_BSales
+                     from   om_bal_daily_sales
+                   where   dslou_code     = pi_ou_code
+                      and    dslsource       not in ('1', '2', '3', '4', '7') -- 0=Direct sales, 1=High Volumn, 2=Wholesales, 3=Cash Sales, 4 = Export, 5=7-Eleven
+                      and    dslsales_date = trunc(p_wdate)            -- Selling from previous woring day
+                      and    dslfinished_code = pi_fscode;
+              Exception when no_data_found Then v_allSale := 0;
+              End;
+              v_return := case when pi_source = '0'  and nvl(v_allSale,0) <> 0 then round(v_ASales/v_allSale, 4)
+                                       when pi_source = '1'  and nvl(v_allSale,0) <> 0 then round(v_BSales/v_allSale, 4)
+                                       when pi_source = '%' then 1
+                                end ;
+          End If;
+
+          Return nvl(v_return,0);
+
+   End getPercentage_bySource;
+
+    FUNCTION calweight_unit (
+        p_unit        NUMBER,
+        p_tot_unit    NUMBER
+    )
+        RETURN NUMBER
+    IS
+        v_weight   NUMBER;
+    BEGIN
+        IF NVL (p_tot_unit, 0) = 0
+        THEN
+            v_weight := 0;
+        ELSE
+            v_weight := ROUND (NVL (p_unit, 0) / NVL (p_tot_unit, 0) * 100, 2);
+        END IF;
+
+        RETURN (v_weight);
+    END calweight_unit;
+
+    FUNCTION calestimate_unit (
+        p_curr_camp    om_billing_dtl.bdtcampaign%TYPE,
+        p_camp         om_billing_dtl.bdtcampaign%TYPE,
+        p_brand        om_billing_dtl.bdtbrand%TYPE,
+        p_unit         NUMBER
+    )
+        RETURN NUMBER
+    IS
+        p_num2   su_param_dtl.padnum2%TYPE := 100;
+        p_num3   su_param_dtl.padnum3%TYPE := 100;
+        p_num4   su_param_dtl.padnum4%TYPE := 100;
+
+        v_unit   NUMBER := 0;
+    BEGIN
+       <<getWeight>>
+        BEGIN
+            SELECT padnum2, padnum3, padnum4
+              INTO p_num2, p_num3, p_num4
+              FROM su_param_dtl
+             WHERE padparam_id = 1
+               AND padentry_code = p_brand
+               AND NVL (padflag2, '0') = '1';
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                NULL;
+        END getweight;
+
+        IF SUBSTR (p_camp, 3, 4) || SUBSTR (p_camp, 1, 2) < SUBSTR (p_curr_camp, 3, 4) || SUBSTR (p_curr_camp, 1, 2)
+        THEN
+            v_unit := NVL (p_unit, 0) * NVL (p_num2, 0) / 100;
+        ELSIF p_camp = p_curr_camp
+        THEN
+            v_unit := NVL (p_unit, 0) * NVL (p_num3, 0) / 100;
+        ELSE
+            v_unit := NVL (p_unit, 0) * NVL (p_num4, 0) / 100;
+        END IF;
+
+        RETURN (v_unit);
+    END calestimate_unit;
+
+    FUNCTION calestimate_factor (
+        p_curr_camp    om_billing_dtl.bdtcampaign%TYPE,
+        p_camp         om_billing_dtl.bdtcampaign%TYPE,
+        p_curr_date    DATE,
+        p_unit         NUMBER
+    )
+        RETURN NUMBER
+    IS
+        p_num1   su_param_dtl.padnum1%TYPE := 100;
+        p_num2   su_param_dtl.padnum2%TYPE := 100;
+        p_num3   su_param_dtl.padnum3%TYPE := 100;
+
+        v_unit   NUMBER := 0;
+    BEGIN
+       <<getWeight>>
+        BEGIN
+            SELECT p14.padnum1, p14.padnum2, p14.padnum3
+              INTO p_num1, p_num2, p_num3
+              FROM su_param_dtl p14, db_mailplan mpl
+             WHERE mpl.mplou_code = '000'
+               AND TRUNC (mpl.mplshipdate) = TRUNC (p_curr_date)
+               AND p14.padparam_id = 14
+               AND p14.padentry_code = mpl.mplmailgroup;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                NULL;
+        END getweight;
+
+        IF SUBSTR (p_camp, 3, 4) || SUBSTR (p_camp, 1, 2) < SUBSTR (p_curr_camp, 3, 4) || SUBSTR (p_curr_camp, 1, 2)
+        THEN
+            v_unit := NVL (p_unit, 0) * NVL (p_num1, 0) / 100;
+        ELSIF p_camp = p_curr_camp
+        THEN
+            v_unit := NVL (p_unit, 0) * NVL (p_num2, 0) / 100;
+        ELSE
+            v_unit := NVL (p_unit, 0) * NVL (p_num3, 0) / 100;
+        END IF;
+
+        RETURN (v_unit);
+    END calestimate_factor;
+
+    FUNCTION getestimate_sales_unit (  p_ou                om_billing_dtl.bdtou_code%type,
+                                                         p_curr_camp    om_billing_dtl.bdtcampaign%type,
+                                                         p_camp           om_billing_dtl.bdtcampaign%type,
+                                                         p_bill               om_billing_dtl.bdtbill_code%type,
+                                                         p_fs                om_billing_dtl.bdtfinished_code%type,
+                                                         p_brand           om_billing_dtl.bdtbrand%type )
+        RETURN NUMBER
+    IS
+        l_camp     om_billing_dtl.bdtcampaign%TYPE;
+
+        v_op_day   NUMBER := 0;
+        v_unit     NUMBER := 0;
+        v_unit2    NUMBER := 0;
+    BEGIN
+       <<getSales_Unit>>
+        BEGIN
+            SELECT SUM (spdcur_unit)
+              INTO v_unit
+              FROM mk_saleplan_dtl
+             WHERE spdou_code = p_ou
+               AND spdplan_campaign = p_camp
+               AND spdbill_code = p_bill
+               AND spdfinished_code = p_fs
+               AND spdbrand = p_brand;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                NULL;
+        END getsales_unit;
+
+        IF v_unit <> 0
+        THEN
+            v_unit := calestimate_unit (p_curr_camp, p_camp, p_brand, v_unit);
+        END IF;
+
+        l_camp   := pkgdb_desc.getprev_campaign (p_ou, p_camp, 1);
+
+       <<getSales_Unit_Late>>
+        BEGIN
+            SELECT SUM (NVL (dslsales_unit, 0) + NVL (dslincentive_unit, 0) + NVL (dslfree_unit, 0))
+              INTO v_unit2
+              FROM om_bal_daily_sales
+             WHERE dslou_code = p_ou
+               AND dslcampaign_code = l_camp
+               AND dslbill_code = p_bill
+               AND dslfinished_code = p_fs
+               AND dslfs_brand = p_brand;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                NULL;
+        END getsales_unit_late;
+
+        v_op_day := getoperation_day (p_ou, l_camp);
+
+        IF NVL (v_op_day, 0) = 0
+        THEN
+            v_unit2 := 0;
+        ELSIF v_unit2 <> 0
+        THEN
+            v_unit2 := NVL (v_unit2, 0) / NVL (v_op_day, 0);
+            v_unit2 := calestimate_unit (p_curr_camp, p_camp, p_brand, v_unit2);
+        END IF;
+
+        RETURN (NVL (v_unit, 0) + NVL (v_unit2, 0));
+    END getestimate_sales_unit;
+
+    FUNCTION getestimate_actual_unit (
+        p_ou            om_billing_dtl.bdtou_code%TYPE,
+        p_curr_camp     om_billing_dtl.bdtcampaign%TYPE,
+        p_camp          om_billing_dtl.bdtcampaign%TYPE,
+        p_bill          om_billing_dtl.bdtbill_code%TYPE,
+        p_fs            om_billing_dtl.bdtfinished_code%TYPE,
+        p_brand         om_billing_dtl.bdtbrand%TYPE,
+        p_curr_date     DATE,
+        p_prior_date    DATE DEFAULT NULL
+    )
+        RETURN NUMBER
+    IS
+        v_unit    NUMBER := 0;
+        v_wdate   DATE;
+    BEGIN
+        IF p_prior_date IS NULL
+        THEN
+            v_wdate := getprior_ship_date (TRUNC (p_curr_date));
+        ELSE
+            v_wdate := p_prior_date;
+        END IF;
+
+       <<getActual_Unit>>
+        BEGIN
+            SELECT SUM (NVL (dslsales_unit, 0) + NVL (dslincentive_unit, 0) + NVL (dslfree_unit, 0))
+              INTO v_unit
+              FROM om_bal_daily_sales
+             WHERE dslou_code = p_ou
+               AND dslcampaign_code = p_camp
+               AND dslfinished_code = p_fs
+               AND dslbill_code = p_bill
+               AND dslfs_brand = p_brand
+               AND TRUNC (dslsales_date) = TRUNC (v_wdate);
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                NULL;
+        END getactual_unit;
+
+        IF v_unit <> 0
+        THEN
+            v_unit := calestimate_factor (p_curr_camp, p_camp, v_wdate, calestimate_unit (p_curr_camp, p_camp, p_brand, v_unit));
+        END IF;
+
+        RETURN (v_unit);
+    END getestimate_actual_unit;
+
+    FUNCTION getestimate_accum_unit (
+        p_ou           om_billing_dtl.bdtou_code%TYPE,
+        p_curr_camp    om_billing_dtl.bdtcampaign%TYPE,
+        p_camp         om_billing_dtl.bdtcampaign%TYPE,
+        p_bill         om_billing_dtl.bdtbill_code%TYPE,
+        p_fs           om_billing_dtl.bdtfinished_code%TYPE,
+        p_brand        om_billing_dtl.bdtbrand%TYPE
+    )
+        RETURN NUMBER
+    IS
+        v_unit   NUMBER := 0;
+    BEGIN
+       <<getAccum_Unit>>
+        BEGIN
+            SELECT SUM (NVL (dslsales_unit, 0) + NVL (dslincentive_unit, 0) + NVL (dslfree_unit, 0))
+              INTO v_unit
+              FROM om_bal_daily_sales
+             WHERE dslou_code = p_ou
+               AND dslcampaign_code = p_camp
+               AND dslbill_code = p_bill
+               AND dslfinished_code = p_fs
+               AND dslfs_brand = p_brand;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                NULL;
+        END getaccum_unit;
+
+        IF v_unit <> 0
+        THEN
+            v_unit := calestimate_unit (p_curr_camp, p_camp, p_brand, v_unit);
+        END IF;
+
+        RETURN (v_unit);
+    END getestimate_accum_unit;
+
+    FUNCTION getoperation_day (
+        p_ou      db_mailplan.mplou_code%TYPE,
+        p_camp    db_mailplan.mplcampaign%TYPE
+    )
+        RETURN NUMBER
+    IS
+        v_cnt   NUMBER := 0;
+    BEGIN
+        BEGIN
+            SELECT COUNT (*)
+              INTO v_cnt
+              FROM db_mailplan
+             WHERE mplou_code = p_ou
+               AND mplcampaign = p_camp
+               AND NVL (mplholiday_status, '0') = '0';
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                v_cnt := 0;
+        END;
+
+        RETURN (v_cnt);
+    END getoperation_day;
+
+    FUNCTION geton_hand (
+        p_ou_code    VARCHAR2,
+        p_fs_code    VARCHAR2
+    )
+        RETURN NUMBER
+    IS
+        v_onhand    NUMBER := 0;
+        v_bypass1   NUMBER := 0;
+        v_bypass2   NUMBER := 0;
+        v_result    NUMBER := 0;
+    BEGIN
+        IF p_ou_code <> 'B11' THEN
+            BEGIN
+                    --- 08/08/2012 add case dummy location (location none inventory) ---
+                    select sum (decode(fohwh_code, 'BWC2', fohwh_ttl_unit, fohinv_unit)) unit
+                      into v_onhand
+                     from iv_fs_onhand
+                   where fohou_code         = p_ou_code
+                       and fohwh_code       <> 'BWC11'
+                       and fohfinished_code = p_fs_code;
+            EXCEPTION
+                WHEN NO_DATA_FOUND
+                THEN
+                    v_onhand := 0;
+                WHEN OTHERS
+                THEN
+                    v_onhand := 0;
+            END;
+        END IF;
+
+        -- find by pass unit from shipping rooms.
+        BEGIN
+
+            SELECT SUM (decode(fohwh_code, 'BWC2', fohwh_ttl_unit, fohinv_unit)) unit
+              INTO v_bypass1
+              FROM iv_fs_onhand, wh_warehouse
+             WHERE fohou_code = p_ou_code
+               AND fohfinished_code = p_fs_code
+               AND NVL (whwloc_flag, '0') = '0'
+               AND fohou_code = whwou_code
+               AND fohwh_code = whwwh_code
+               AND case when p_ou_code = 'B11' and fohwh_code LIKE DECODE (p_ou_code, 'B11', 'BWC11', '%') then 1
+                             when p_ou_code <> 'B11' and fohwh_code <> 'BWC11' then 1
+                      end  = 1
+               --- check not exist for by pass warehouse
+               AND EXISTS (SELECT 1
+                             FROM su_param_dtl d
+                            WHERE padparam_id = 394
+                              AND NVL (padinactive_status, 0) = 0
+                              AND NVL (padflag1, 0) = 1
+                              AND padcha1 = fohwh_code);
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                v_bypass1 := 0;
+            WHEN OTHERS
+            THEN
+                v_bypass1 := 0;
+        END;
+
+        IF p_ou_code <> 'B11'
+        THEN
+            BEGIN
+                SELECT SUM (o.lohttl_unit)
+                  INTO v_bypass2
+                  FROM wh_loc_onhand o, wh_warehouse
+                 WHERE o.lohou_code = p_ou_code
+                   AND o.lohwh_code   <> 'BWC11'
+                   AND o.lohfinished_code = p_fs_code
+                   AND NVL (whwloc_flag, '0') = '1'
+                   AND o.lohou_code = whwou_code
+                   AND o.lohwh_code = whwwh_code
+                   AND EXISTS (SELECT 1
+                                 FROM su_param_dtl d --- check by pass fix location
+                                WHERE d.padparam_id = 528
+                                  AND NVL (d.padinactive_status, '0') = '0'
+                                  AND NVL (d.padflag3, '0') = '1'
+                                  AND d.padcha1 = o.lohwh_code
+                                  AND d.padcha2 = o.lohmajor_code
+                                  AND d.padcha3 = o.lohminor_code);
+                    /*EXISTS (SELECT 1
+                                FROM su_param_dtl d
+                               WHERE padparam_id = 394
+                                 AND nvl (padinactive_status, 0) = 0
+                                 AND nvl (padflag1, 0) = 1
+                                 AND padcha1 = lohwh_code) );*/
+            EXCEPTION
+                WHEN NO_DATA_FOUND
+                THEN
+                    v_bypass2 := 0;
+                WHEN OTHERS
+                THEN
+                    v_bypass2 := 0;
+            END;
+        END IF;
+
+        IF p_ou_code <> 'B11'
+        THEN
+            v_result := NVL (v_onhand, 0) - NVL (v_bypass1, 0) - NVL (v_bypass2, 0);
+        ELSE
+            v_result := NVL (v_bypass1, 0);
+        END IF;
+
+        RETURN (NVL (v_result, 0));
+    END geton_hand;
+
+    FUNCTION getAvailable ( p_ou_code    VARCHAR2,
+                                         p_fs_code     VARCHAR2,
+                                         p_wdate       DATE,
+                                         p_camp        VARCHAR2 ) RETURN NUMBER is
+    v_onHand number;
+    v_weight   number;
+    v_brand    db_product_dtl.pdtbrand%type;
+    v_firstBill  date;
+    v_chkWeight_logic varchar2(1);
+    BEGIN
+           v_onHand := geton_Hand(p_ou_code, p_fs_code);
+
+           Begin
+                select pdtbrand
+                   into v_brand
+                 from db_product_dtl
+              where  pdtfinished_code = p_fs_code;
+           Exception when no_data_found then v_brand := null;
+           End;
+
+           Begin
+              select padcha1
+                 into v_chkWeight_logic
+                from su_param_dtl
+             where padparam_id   =  399
+                 and padentry_code = '37';
+           Exception when no_data_found then v_chkWeight_logic := '%'; --- All Avalialbe, 1 = only BSMART
+           End;
+
+           --- check Factoring on Working Date ---
+           Begin
+                select min(mplbilldate)
+                   into v_firstBill
+                 from db_mailplan
+               where mplou_code     = p_ou_code
+                   and mplyear          = substr(p_camp, 3,4)
+                   and mplcampaign  = p_camp;
+           Exception when no_data_found then null;
+           End;
+
+           If trunc(v_firstBill) = trunc(p_wdate) Then
+              v_weight   := getPercentage_bySource (p_ou_code,
+                                                                        p_wdate,
+                                                                        '1',         --- 0 = percentage from table, 1 = percentage for Calculate
+                                                                        v_brand, -- FS Brand
+                                                                        nvl(v_chkWeight_logic, '1'),         --- 0 migration, 1 bsmart
+                                                                        p_fs_code);
+              return v_onHand * v_weight;
+           Else
+             v_weight   := getPercentage_bySource ( p_ou_code,
+                                                                        p_wdate,
+                                                                        '1',         --- 0 = percentage from table, 1 = percentage for Calculate
+                                                                        v_brand, -- FS Brand
+                                                                        nvl(v_chkWeight_logic, '1'),
+                                                                        p_fs_code); --- 0 migration, 1 bsmart
+              return v_onHand * v_weight;
+           End If;
+    END getAvailable;
+
+    FUNCTION geton_order (
+        p_ou_code     pp_ctc_dtl.pcdou_code%TYPE,
+        p_fs_code     pp_ctc_dtl.pcdfs_code%TYPE,
+        p_due_date    pp_ctc_dtl.pcddue_date%TYPE
+    )
+        RETURN NUMBER
+    IS
+        v_result   NUMBER;
+        v_date     DATE := TRUNC (p_due_date);
+    BEGIN
+        BEGIN
+            SELECT NVL (SUM (c.pcdqty), 0) - NVL (SUM (c.pcdrcv_qty), 0)
+              INTO v_result
+              FROM pp_ctc_dtl c
+             WHERE c.pcdou_code = p_ou_code
+               AND c.pcdfs_code = p_fs_code
+               AND TRUNC (c.pcddue_date) = TRUNC (v_date)
+               AND NOT EXISTS
+                       (SELECT 1
+                          FROM pp_po_hdr h, pp_po_dtl d
+                         WHERE h.pohou_code = p_ou_code
+                           AND h.pohpo_type = 'I'
+                           AND TRUNC (d.podconf_duedate) = v_date
+                           AND h.pohou_code = d.podou_code
+                           AND h.pohpo_no = d.podpo_no
+                           AND d.podou_code = c.pcdou_code
+                           AND d.podpo_no = c.pcdpo_no
+                           AND d.podfs_code = c.pcdfs_code);
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                v_result := 0;
+            WHEN OTHERS
+            THEN
+                v_result := 0;
+        END;
+
+        RETURN (v_result);
+    END geton_order;
+
+    FUNCTION getmax_fs_seq (
+        p_ou_code    om_short_hdr.shtou_code%TYPE,
+        p_fs_code    om_short_hdr.shtfinished_code%TYPE
+    )
+        RETURN om_short_hdr.shtfinished_seq%TYPE
+    IS
+        v_seq   om_short_hdr.shtfinished_seq%TYPE;
+    BEGIN
+        BEGIN
+            SELECT NVL (MAX (shtfinished_seq), 0) + 1
+              INTO v_seq
+              FROM om_short_hdr
+             WHERE shtou_code = p_ou_code
+               AND shtfinished_code = p_fs_code;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                v_seq := 1;
+            WHEN OTHERS
+            THEN
+                v_seq := 1;
+        END;
+
+        RETURN (v_seq);
+    END getmax_fs_seq;
+
+    FUNCTION getmax_short_seq (
+        p_ou_code    om_short_dtl.shdou_code%TYPE,
+        p_fs_code    om_short_dtl.shdfinished_code%TYPE,
+        p_fs_seq     om_short_dtl.shdfinished_seq%TYPE
+    )
+        RETURN om_short_dtl.shdshort_seq%TYPE
+    IS
+        v_seq   om_short_dtl.shdshort_seq%TYPE;
+    BEGIN
+        BEGIN
+            SELECT NVL (MAX (shdshort_seq), 0) + 1
+              INTO v_seq
+              FROM om_short_dtl
+             WHERE shdou_code = p_ou_code
+               AND shdfinished_code = p_fs_code
+               AND shdfinished_seq = p_fs_seq;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                v_seq := 1;
+            WHEN OTHERS
+            THEN
+                v_seq := 1;
+        END;
+
+        RETURN (v_seq);
+    END getmax_short_seq;
+
+    FUNCTION getgp_percent (
+        p_ou_code      mk_saleplan_dtl.spdou_code%TYPE,
+        p_brand        mk_saleplan_dtl.spdbrand%TYPE,
+        p_camp_code    mk_saleplan_dtl.spdplan_campaign%TYPE,
+        p_fs_code      mk_saleplan_dtl.spdfinished_code%TYPE
+    )
+        RETURN mk_saleplan_dtl.spdcur_gp_percent%TYPE
+    IS
+        v_result   mk_saleplan_dtl.spdcur_gp_percent%TYPE;
+    BEGIN
+        BEGIN
+            SELECT spdcur_gp_percent
+              INTO v_result
+              FROM mk_saleplan_dtl
+             WHERE spdou_code = p_ou_code
+               AND spdbrand = p_brand
+               AND spdplan_campaign = p_camp_code
+               AND spdfinished_code = p_fs_code
+               AND ROWNUM = 1;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                v_result := NULL;
+            WHEN OTHERS
+            THEN
+                v_result := NULL;
+        END;
+
+        RETURN (v_result);
+    END getgp_percent;
+
+    FUNCTION getshort_limit (
+        p_ou_code      om_short_dtl.shdou_code%TYPE,
+        p_fs_code      om_short_dtl.shdfinished_code%TYPE,
+        p_sdate        om_short_dtl.shdeff_sdate%TYPE,
+        p_camp_code    om_short_dtl.shdbill_campaign%TYPE,
+        p_bill_code    om_short_dtl.shdbill_code%TYPE
+    )
+        RETURN om_short_dtl.shdshort_limit%TYPE
+    IS
+        v_result   om_short_dtl.shdshort_limit%TYPE;
+    BEGIN
+        BEGIN
+            SELECT SUM (NVL (shdshort_limit, 0))
+              INTO v_result
+              FROM om_short_dtl
+             WHERE shdou_code = p_ou_code
+               AND shdfinished_code = p_fs_code
+               AND shdeff_sdate = p_sdate
+               AND shdbill_campaign = p_camp_code
+               AND shdbill_code = p_bill_code;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                v_result := NULL;
+            WHEN OTHERS
+            THEN
+                v_result := NULL;
+        END;
+
+        RETURN (v_result);
+    END getshort_limit;
+
+    FUNCTION getsub_limit (
+        p_ou_code      om_short_sub.shsou_code%TYPE,
+        p_fs_code      om_short_sub.shsfinished_code%TYPE,
+        p_sdate        om_short_sub.shseff_sdate%TYPE,
+        p_camp_code    om_short_sub.shsbill_campaign%TYPE,
+        p_bill_code    om_short_sub.shsbill_code%TYPE
+    )
+        RETURN om_short_sub.shssub_limit%TYPE
+    IS
+        v_result   om_short_sub.shssub_limit%TYPE;
+    BEGIN
+        BEGIN
+            SELECT SUM (NVL (shssub_limit, 0))
+              INTO v_result
+              FROM om_short_sub
+             WHERE shsou_code = p_ou_code
+               AND shsfinished_code = p_fs_code
+               AND shseff_sdate = p_sdate
+               AND shsbill_campaign = p_camp_code
+               AND shsbill_code = p_bill_code;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                v_result := NULL;
+            WHEN OTHERS
+            THEN
+                v_result := NULL;
+        END;
+
+        RETURN (v_result);
+    END getsub_limit;
+
+    FUNCTION getprior_ship_date (p_curr_date DATE)
+        RETURN DATE
+    IS
+        v_date   DATE := NULL;
+    BEGIN
+        BEGIN
+            SELECT TRUNC (mplshipdate)
+              INTO v_date
+              FROM (SELECT mpl.mplshipdate, ROW_NUMBER () OVER (ORDER BY SUBSTR (mplcampaign, 3, 4) || SUBSTR (mplcampaign, 1, 2) DESC, p14.padnum4 DESC) rn
+                      FROM db_mailplan mpl, su_param_dtl p14
+                     WHERE TRUNC (mpl.mplshipdate) < TRUNC (p_curr_date)
+                       AND p14.padparam_id = 14
+                       AND p14.padentry_code = mpl.mplmailgroup)
+             WHERE rn = 1;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                NULL;
+        END;
+
+        RETURN (v_date);
+    END getprior_ship_date;
+
+    FUNCTION getnext_ship_date (p_curr_date DATE)
+        RETURN DATE
+    IS
+        v_date   DATE := NULL;
+    BEGIN
+        BEGIN
+            SELECT TRUNC (mplshipdate)
+              INTO v_date
+              FROM (SELECT mpl.mplshipdate, ROW_NUMBER () OVER (ORDER BY SUBSTR (mplcampaign, 3, 4) || SUBSTR (mplcampaign, 1, 2), p14.padnum4) rn
+                      FROM db_mailplan mpl, su_param_dtl p14
+                     WHERE TRUNC (mpl.mplshipdate) > TRUNC (p_curr_date)
+                       AND p14.padparam_id = 14
+                       AND p14.padentry_code = mpl.mplmailgroup)
+             WHERE rn = 1;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                NULL;
+        END;
+
+        RETURN (v_date);
+    END getnext_ship_date;
+
+    PROCEDURE getcamp_date_period (
+        p_ou_code     IN     db_campaign.cpgou_code%TYPE,
+        p_camp_code   IN     db_campaign.cpgcampaign_code%TYPE,
+        p_eff_sdate      OUT db_campaign.cpgeff_sdate%TYPE,
+        p_eff_edate      OUT db_campaign.cpgeff_edate%TYPE
+    )
+    IS
+    BEGIN
+        BEGIN
+            SELECT cpgeff_sdate, cpgeff_edate
+              INTO p_eff_sdate, p_eff_edate
+              FROM db_campaign
+             WHERE cpgou_code = p_ou_code
+               AND cpgcampaign_code = p_camp_code;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                p_eff_sdate := NULL;
+                p_eff_edate := NULL;
+            WHEN OTHERS
+            THEN
+                p_eff_sdate := NULL;
+                p_eff_edate := NULL;
+        END;
+    END getcamp_date_period;
+
+    PROCEDURE getcamp_code_period (
+        p_ou_code     IN     db_campaign.cpgou_code%TYPE,
+        p_curr_camp   IN     db_campaign.cpgcampaign_code%TYPE,
+        p_prev_camp      OUT db_campaign.cpgcampaign_code%TYPE,
+        p_next_camp      OUT db_campaign.cpgcampaign_code%TYPE
+    )
+    IS
+        v_prev   NUMBER;
+        v_next   NUMBER;
+    BEGIN
+        BEGIN
+            SELECT NVL (ABS (padnum1), 0), NVL (ABS (padnum2), 0)
+              INTO v_prev, v_next
+              FROM su_param_dtl
+             WHERE padparam_id = 399
+               AND padentry_code = '39'
+               AND ROWNUM = 1;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                v_prev := 0;
+                v_next := 0;
+            WHEN OTHERS
+            THEN
+                v_prev := 0;
+                v_next := 0;
+        END;
+
+        p_prev_camp := pkgdb_desc.getprev_campaign (p_ou_code, p_curr_camp, v_prev);
+        p_next_camp := pkgdb_desc.getnext_campaign (p_ou_code, p_curr_camp, v_next);
+    END getcamp_code_period;
+
+    PROCEDURE getdefault_desc (
+        p_reason     OUT VARCHAR2,
+        p_sht_code   OUT VARCHAR2,
+        p_sht_msg    OUT VARCHAR2
+    )
+    IS
+    BEGIN
+        --- Begin 19/06/2010 Default Short Reason code for Automatic Short Process
+        BEGIN
+            SELECT pad1.padcha2, pad1.padcha3, pad2.padcha5
+              INTO p_reason, p_sht_code, p_sht_msg
+              FROM su_param_dtl pad1, su_param_dtl pad2
+             WHERE pad1.padparam_id = 99
+               AND pad1.padentry_code = 8
+               AND pad2.padparam_id(+) = 308
+               AND pad2.padentry_code(+) = pad1.padcha2;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                p_reason   := '05';
+                p_sht_code := '05';
+                p_sht_msg  := '05';
+        END;
+    -- End 19/06/2010 Default Short Reason code for Automatic Short Process
+    --        BEGIN
+    --            SELECT padcha2, padcha3
+    --              INTO
+    --              FROM su_param_dtl
+    --             WHERE padparam_id = 99
+    --               AND padentry_code = '8'
+    --               AND ROWNUM = 1;
+    --        EXCEPTION
+    --            WHEN NO_DATA_FOUND
+    --            THEN
+    --                p_reason := NULL;
+    --                p_sht_code := NULL;
+    --                p_sht_msg := NULL;
+    --        END;
+
+    --        IF p_sht_code IS NOT NULL
+    --        THEN
+    --            BEGIN
+    --                SELECT padcha5
+    --                  INTO p_sht_msg
+    --                  FROM su_param_dtl
+    --                 WHERE padparam_id = 308
+    --                   AND padentry_code = p_sht_code
+    --                   AND ROWNUM = 1;
+    --            EXCEPTION
+    --                WHEN NO_DATA_FOUND
+    --                THEN
+    --                    p_sht_msg := NULL;
+    --            END;
+    --        END IF;
+    END getdefault_desc;
+
+    FUNCTION fndcurrentshort_unit (
+        p_ou_code          om_short_dtl_act.shaou_code%TYPE,
+        p_finished_code    om_short_dtl_act.shafinished_code%TYPE,
+        p_finished_seq     om_short_dtl_act.shafinished_seq%TYPE,
+        p_short_seq        om_short_dtl_act.shashort_seq%TYPE,
+        p_bill_campaign    om_short_dtl_act.shabill_campaign%TYPE,
+        p_bill_code        om_short_dtl_act.shabill_code%TYPE,
+        p_eff_sdate        om_short_dtl_act.shaeff_sdate%TYPE,
+        p_eff_edate        om_short_dtl_act.shaeff_sdate%TYPE
+    )
+        RETURN NUMBER
+    IS
+        v_sales_unit   NUMBER := 0;
+    BEGIN
+        BEGIN
+            SELECT SUM (NVL (shasales_unit, 0))
+              INTO v_sales_unit
+              FROM om_short_dtl_act
+             WHERE shaou_code = p_ou_code
+               AND shafinished_code = p_finished_code
+               AND shafinished_seq = p_finished_seq
+               AND shashort_seq = p_short_seq
+               AND shabill_campaign = p_bill_campaign
+               AND shabill_code = p_bill_code
+               AND shasales_date BETWEEN TRUNC (p_eff_sdate) AND TRUNC (p_eff_edate) + 0.99999;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                v_sales_unit := 0;
+        END;
+
+        RETURN (v_sales_unit);
+    END fndcurrentshort_unit;
+
+    FUNCTION fndcurrentLoss_unit (
+        p_ou_code          om_short_dtl_act.shaou_code%TYPE,
+        p_finished_code    om_short_dtl_act.shafinished_code%TYPE,
+        p_finished_seq     om_short_dtl_act.shafinished_seq%TYPE,
+        p_short_seq        om_short_dtl_act.shashort_seq%TYPE,
+        p_bill_campaign    om_short_dtl_act.shabill_campaign%TYPE,
+        p_bill_code        om_short_dtl_act.shabill_code%TYPE,
+        p_eff_sdate        om_short_dtl_act.shaeff_sdate%TYPE,
+        p_eff_edate        om_short_dtl_act.shaeff_sdate%TYPE
+    )
+        RETURN NUMBER
+    IS
+        v_loss_unit   NUMBER := 0;
+    BEGIN
+        BEGIN
+            SELECT SUM (NVL (shaloss_unit, 0))
+              INTO v_loss_unit
+              FROM om_short_dtl_act
+             WHERE shaou_code = p_ou_code
+               AND shafinished_code = p_finished_code
+               AND shafinished_seq = p_finished_seq
+               AND shashort_seq = p_short_seq
+               AND shabill_campaign = p_bill_campaign
+               AND shabill_code = p_bill_code
+               AND shasales_date BETWEEN TRUNC (p_eff_sdate) AND TRUNC (p_eff_edate) + 0.99999;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                v_loss_unit := 0;
+        END;
+
+        RETURN (v_loss_unit);
+    END fndcurrentLoss_unit;
+
+    FUNCTION fndcurrentsub_unit (  p_ou_code          om_short_sub_act.shbou_code%TYPE,
+                                                    p_finished_code    om_short_sub_act.shbfinished_code%TYPE,
+                                                    p_finished_seq     om_short_sub_act.shbfinished_seq%TYPE,
+                                                    p_short_seq        om_short_sub_act.shbshort_seq%TYPE,
+                                                    p_bill_campaign    om_short_sub_act.shbbill_campaign%TYPE,
+                                                    p_bill_code        om_short_sub_act.shbbill_code%TYPE,
+                                                    p_sub_campaign     om_short_sub_act.shbsubbill_campaign%TYPE,
+                                                    p_sub_bill         om_short_sub_act.shbsubbill_code%TYPE,
+                                                    p_eff_sdate        om_short_sub_act.shbeff_sdate%TYPE,
+                                                    p_eff_edate        om_short_sub_act.shbeff_sdate%TYPE
+                                                )
+                                                    RETURN NUMBER
+                                                IS
+        v_sales_unit   NUMBER := 0;
+    BEGIN
+        Begin
+            select sum (nvl (shbsub_unit, 0))
+              into v_sales_unit
+              from om_short_sub_act
+             where shbou_code = p_ou_code
+               and shbfinished_code = p_finished_code
+               and shbfinished_seq = p_finished_seq
+               and shbshort_seq = p_short_seq
+               and shbbill_campaign = p_bill_campaign
+               and shbbill_code = p_bill_code
+               and shbsubbill_campaign = p_sub_campaign
+               and shbsubbill_code = p_sub_bill
+               and nvl (shbfree_status, '0') = '0'
+               and shbsales_date between trunc (p_eff_sdate) and trunc (p_eff_edate) + 0.99999;
+        Exception when no_data_found then v_sales_unit := 0;
+        END;
+
+        Return (v_sales_unit);
+
+    END fndcurrentsub_unit;
+
+    FUNCTION fndcurrentfree_unit (
+        p_ou_code          om_short_sub_act.shbou_code%TYPE,
+        p_finished_code    om_short_sub_act.shbfinished_code%TYPE,
+        p_bill_campaign    om_short_sub_act.shbbill_campaign%TYPE,
+        p_bill_code        om_short_sub_act.shbbill_code%TYPE,
+        p_sub_campaign     om_short_sub_act.shbsubbill_campaign%TYPE,
+        p_sub_bill         om_short_sub_act.shbsubbill_code%TYPE,
+        p_eff_sdate        om_short_sub_act.shbeff_sdate%TYPE,
+        p_eff_edate        om_short_sub_act.shbeff_sdate%TYPE
+    )
+        RETURN NUMBER
+    IS
+        v_sales_unit   NUMBER := 0;
+    BEGIN
+        BEGIN
+            SELECT SUM (NVL (shbsub_unit, 0))
+              INTO v_sales_unit
+              FROM om_short_sub_act
+             WHERE shbou_code = p_ou_code
+               AND shbfinished_code = p_finished_code
+               AND shbbill_campaign = p_bill_campaign
+               AND shbbill_code = p_bill_code
+               AND shbsubbill_campaign = p_sub_campaign
+               AND shbsubbill_code = p_sub_bill
+               AND NVL (shbfree_status, '0') = '1'
+               AND shbsales_date BETWEEN TRUNC (p_eff_sdate) AND TRUNC (p_eff_edate) + 0.99999;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                v_sales_unit := 0;
+        END;
+
+        RETURN (v_sales_unit);
+    END fndcurrentfree_unit;
+
+    FUNCTION check_short_status (
+        p_ou_code      om_short_dtl.shdou_code%TYPE,
+        p_bill_camp    om_short_dtl.shdbill_campaign%TYPE,
+        p_bill_code    om_short_dtl.shdbill_code%TYPE
+    )
+        RETURN CHAR
+    IS
+        v_status   CHAR (1) := '0';
+    BEGIN
+        IF p_ou_code IS NULL
+        OR  p_bill_camp IS NULL
+        OR  p_bill_code IS NULL
+        THEN
+            v_status := '0';
+        ELSE
+           <<chk_short>>
+            BEGIN
+                SELECT '1'
+                  INTO v_status
+                  FROM om_short_dtl
+                 WHERE shdou_code = p_ou_code
+                   AND shdbill_campaign = p_bill_camp
+                   AND shdbill_code = p_bill_code
+                   AND ROWNUM = 1;
+            EXCEPTION
+                WHEN NO_DATA_FOUND
+                THEN
+                    v_status := '0';
+                WHEN OTHERS
+                THEN
+                    v_status := '0';
+            END chk_short;
+        END IF;
+
+        RETURN (v_status);
+    END check_short_status;
+
+    FUNCTION chkshortage_limit (
+        p_ou_code      om_short_dtl.shdou_code%TYPE,
+        p_bill_camp    om_short_dtl.shdbill_campaign%TYPE,
+        p_bill_code    om_short_dtl.shdbill_code%TYPE,
+        p_curr_date    om_short_dtl.shdeff_sdate%TYPE
+    )
+        RETURN NUMBER
+    IS
+        v_chk   NUMBER (1) := 0;
+    BEGIN
+        BEGIN
+             select 1
+                into v_chk
+              from om_short_dtl
+             where shdou_code = p_ou_code
+               and shdbill_campaign = p_bill_camp
+               and shdbill_code = p_bill_code
+               and trunc (p_curr_date) between trunc (shdeffdtl_sdate) and trunc (shdeffdtl_edate) + 0.99999
+               and (( shdshort_limit is null and nvl (shdinactive_status, '0') = '0')
+                         or
+                       (
+                         nvl (shdinactive_status, '0') = '0' and
+                         shdshort_code in (select padentry_code
+                                                    from su_param_dtl
+                                                  where padparam_id = 308
+                                                     and nvl (padflag5, '0') = '1')
+                        )
+                     )
+               and rownum = 1;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                NULL;
+        END;
+
+        RETURN (v_chk);
+    END chkshortage_limit;
+
+    FUNCTION chkins_short_hdr (
+        p_ou_code    om_short_hdr.shtou_code%TYPE,
+        p_fs_code    om_short_hdr.shtfinished_code%TYPE
+    )
+        RETURN om_short_hdr.shtfinished_seq%TYPE
+    IS
+        v_seq   om_short_hdr.shtfinished_seq%TYPE;
+    BEGIN
+        BEGIN
+            SELECT NVL (MAX (shtfinished_seq), 0)
+              INTO v_seq
+              FROM om_short_hdr
+             WHERE shtou_code = p_ou_code
+               AND shtfinished_code = p_fs_code
+               AND ROWNUM = 1;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                v_seq := 0;
+            WHEN OTHERS
+            THEN
+                v_seq := 0;
+        END;
+
+        RETURN (v_seq);
+    END chkins_short_hdr;
+
+    FUNCTION chkins_short_dtl_old (
+        p_ou_code       om_short_dtl.shdou_code%TYPE,
+        p_fs_code       om_short_dtl.shdfinished_code%TYPE,
+        p_fs_seq        om_short_dtl.shdfinished_seq%TYPE,
+        p_camp_code     om_short_dtl.shdbill_campaign%TYPE,
+        p_bill_code     om_short_dtl.shdbill_code%TYPE,
+        p_short_code    om_short_dtl.shdshort_code%TYPE,
+        p_back_camp     om_short_dtl.shdback_campaign%TYPE,
+        p_max_ord       om_short_dtl.shdmaximum_ord%TYPE
+    )
+        RETURN om_short_dtl.shdshort_seq%TYPE
+    IS
+        v_short_seq     om_short_dtl.shdshort_seq%TYPE := 0;
+        v_back_camp     om_short_dtl.shdback_campaign%TYPE;
+        v_max_ord       om_short_dtl.shdmaximum_ord%TYPE;
+        v_chk_backord   NUMBER;
+    BEGIN
+       <<chkbilling>>
+        BEGIN
+            SELECT sd.shdshort_seq
+              INTO v_short_seq
+              FROM om_short_dtl sd
+             WHERE sd.shdou_code = p_ou_code
+               AND sd.shdfinished_code = p_fs_code
+               AND sd.shdfinished_seq = p_fs_seq
+               AND sd.shdbill_campaign = p_camp_code
+               AND sd.shdbill_code = p_bill_code
+               AND sd.shdshort_code = p_short_code
+               AND ROWNUM = 1;
+
+            IF p_back_camp IS NOT NULL
+            THEN
+               <<chkbackorder>>
+                BEGIN
+                    SELECT sd.shdshort_seq
+                      INTO v_short_seq
+                      FROM om_short_dtl sd
+                     WHERE sd.shdou_code = p_ou_code
+                       AND sd.shdfinished_code = p_fs_code
+                       AND sd.shdfinished_seq = p_fs_seq
+                       AND sd.shdbill_campaign = p_camp_code
+                       AND sd.shdbill_code = p_bill_code
+                       AND sd.shdshort_code = p_short_code
+                       AND NVL (sd.shdback_campaign, CHR (250)) = NVL (p_back_camp, CHR (250))
+                       AND ROWNUM = 1;
+
+                    IF NVL (p_max_ord, -1) = -9
+                    THEN
+                        RETURN (v_short_seq);
+                    ELSE
+                       <<chkmax_ord>>
+                        BEGIN
+                            SELECT sd.shdshort_seq
+                              INTO v_short_seq
+                              FROM om_short_dtl sd
+                             WHERE sd.shdou_code = p_ou_code
+                               AND sd.shdfinished_code = p_fs_code
+                               AND sd.shdfinished_seq = p_fs_seq
+                               AND sd.shdbill_campaign = p_camp_code
+                               AND sd.shdbill_code = p_bill_code
+                               AND sd.shdshort_code = p_short_code
+                               AND NVL (sd.shdback_campaign, CHR (250)) = NVL (p_back_camp, CHR (250))
+                               AND NVL (sd.shdmaximum_ord, -1) = NVL (p_max_ord, -1)
+                               AND ROWNUM = 1;
+
+                            RETURN (v_short_seq);
+                        EXCEPTION
+                            WHEN NO_DATA_FOUND
+                            THEN
+                                RETURN (0);
+                        END chkmax_ord;
+                    END IF;
+                EXCEPTION
+                    WHEN NO_DATA_FOUND
+                    THEN
+                        RETURN (0);
+                END chkbackorder;
+            ELSE
+                IF NVL (p_max_ord, -1) = -9
+                THEN
+                    RETURN (v_short_seq);
+                ELSE
+                   <<chkmax_ord2>>
+                    BEGIN
+                        SELECT sd.shdshort_seq
+                          INTO v_short_seq
+                          FROM om_short_dtl sd
+                         WHERE sd.shdou_code = p_ou_code
+                           AND sd.shdfinished_code = p_fs_code
+                           AND sd.shdfinished_seq = p_fs_seq
+                           AND sd.shdbill_campaign = p_camp_code
+                           AND sd.shdbill_code = p_bill_code
+                           AND sd.shdshort_code = p_short_code
+                           AND NVL (sd.shdmaximum_ord, -1) = NVL (p_max_ord, -1)
+                           AND ROWNUM = 1;
+
+                        RETURN (v_short_seq);
+                    EXCEPTION
+                        WHEN NO_DATA_FOUND
+                        THEN
+                            RETURN (0);
+                    END chkmax_ord2;
+                END IF;
+            END IF;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                RETURN (0);
+        END chkbilling;
+
+        RETURN (v_short_seq);
+    END chkins_short_dtl_old;
+
+    FUNCTION chkins_short_dtl (
+        p_ou_code         om_short_dtl.shdou_code%TYPE,
+        p_fs_code         om_short_dtl.shdfinished_code%TYPE,
+        p_fs_seq          om_short_dtl.shdfinished_seq%TYPE,
+        p_eff_sdate       om_short_dtl.shdeff_sdate%TYPE,
+        p_bill_camp       om_short_dtl.shdbill_campaign%TYPE,
+        p_bill_code       om_short_dtl.shdbill_code%TYPE,
+        p_effdtl_sdate    om_short_dtl.shdeffdtl_sdate%TYPE,
+        p_effdtl_edate    om_short_dtl.shdeffdtl_edate%TYPE,
+        p_dist_status     om_short_dtl.shdbydistrict_status%TYPE DEFAULT '0',
+        p_rept_status     om_short_dtl.shdbyrept_status%TYPE DEFAULT '0',
+        p_act_status      om_short_dtl.shdbyactivity_status%TYPE DEFAULT '0',
+        p_flag1           om_short_dtl.shdflag1%TYPE DEFAULT '1',
+        p_flag2           om_short_dtl.shdflag2%TYPE DEFAULT '1',
+        p_flag3           om_short_dtl.shdflag3%TYPE DEFAULT '1',
+        p_flag           NUMBER DEFAULT 1 --> 0=For process day end, 1=For program short and sub.
+    )
+        RETURN om_short_dtl.shdshort_seq%TYPE
+    IS
+        v_short_seq   om_short_dtl.shdshort_seq%TYPE := 0;
+    BEGIN
+       <<checkdup>>
+        BEGIN
+            SELECT MAX (shdshort_seq)
+              INTO v_short_seq
+              FROM om_short_dtl
+             WHERE shdou_code = p_ou_code
+               AND shdfinished_code = p_fs_code
+               AND shdfinished_seq = p_fs_seq
+               AND shdeff_sdate = p_eff_sdate
+               AND shdbill_campaign = p_bill_camp
+               AND shdbill_code = p_bill_code
+               AND shdeffdtl_sdate = p_effdtl_sdate
+               AND shdeffdtl_edate = p_effdtl_edate
+               AND shdshort_code = decode(p_flag, 0, '05',  0, shdshort_code)
+               AND NVL (shdbydistrict_status, '0') = NVL (p_dist_status, '0')
+               AND NVL (shdbyrept_status, '0') = NVL (p_rept_status, '0')
+               AND NVL (shdbyactivity_status, '0') = NVL (p_act_status, '0')
+               AND NVL (shdflag1, '0') = NVL (p_flag1, '0')
+               AND NVL (shdflag2, '0') = NVL (p_flag2, '0')
+               AND NVL (shdflag3, '0') = NVL (p_flag3, '0');
+
+           <<checkoverlap_effdate>>
+            BEGIN
+                SELECT MAX (shdshort_seq)
+                  INTO v_short_seq
+                  FROM om_short_dtl
+                 WHERE shdou_code = p_ou_code
+                   AND shdfinished_code = p_fs_code
+                   AND shdfinished_seq = p_fs_seq
+                   AND shdeff_sdate = p_eff_sdate
+                   AND shdbill_campaign = p_bill_camp
+                   AND shdbill_code = p_bill_code
+                   AND NVL (shdbydistrict_status, '0') = NVL (p_dist_status, '0')
+                   AND NVL (shdbyrept_status, '0') = NVL (p_rept_status, '0')
+                   AND NVL (shdbyactivity_status, '0') = NVL (p_act_status, '0')
+                   AND NVL (shdflag1, '0') = NVL (p_flag1, '0')
+                   AND NVL (shdflag2, '0') = NVL (p_flag2, '0')
+                   AND NVL (shdflag3, '0') = NVL (p_flag3, '0')
+                   AND (   (    p_effdtl_sdate <= shdeffdtl_edate
+                            AND p_effdtl_edate >= shdeffdtl_sdate)
+                        OR (    shdeffdtl_sdate <= p_effdtl_edate
+                            AND shdeffdtl_edate >= p_effdtl_sdate));
+            EXCEPTION
+                WHEN NO_DATA_FOUND
+                THEN
+                    v_short_seq := 0;
+                WHEN OTHERS
+                THEN
+                    v_short_seq := 0;
+            END checkoverlap_effdate;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                v_short_seq := 0;
+            WHEN OTHERS
+            THEN
+                v_short_seq := 0;
+        END checkdup;
+
+        RETURN (v_short_seq);
+    END chkins_short_dtl;
+
+    PROCEDURE delom_short_fscode (p_session_id NUMBER)
+    IS
+    BEGIN
+        BEGIN
+            DELETE om_short_fscode WHERE sfssession_id = p_session_id;
+            COMMIT;
+        EXCEPTION
+            WHEN NO_DATA_FOUND
+            THEN
+                NULL;
+            WHEN OTHERS
+            THEN
+                NULL;
+        END;
+    END delom_short_fscode;
+
+    PROCEDURE prepareauto_short (
+        p_ou_code       om_short_fscode.sfsou_code%TYPE,
+        p_camp_code     om_short_fscode.sfsbill_campaign%TYPE,
+        p_fs_code       om_short_fscode.sfsfinished_code%TYPE,
+        p_eff_sdate     om_short_fscode.sfseff_sdate%TYPE,
+        p_eff_edate     om_short_fscode.sfseff_edate%TYPE,
+        p_short_code    om_short_dtl.shdshort_code%TYPE,
+        p_short_msg     om_short_dtl.shdshort_message%TYPE,
+        p_sub_fs        om_short_fscode.sfssubfinished_code%TYPE,
+        p_sub_bill      om_short_fscode.sfssubbill_code%TYPE,
+        p_curr_date     DATE,
+        p_session_id    NUMBER,
+        p_jobno         su_jobs_regis.jbrjob_no%TYPE,
+        p_flag          NUMBER DEFAULT 1 --> 0=For process day end, 1=For BWOMRT13.
+    )
+    IS
+        CURSOR c_data ( p_ou_code        om_short_fscode.sfsou_code%TYPE,
+                        p_camp_code      om_short_fscode.sfsbill_campaign%TYPE,
+                        p_s_camp_code    om_short_fscode.sfsbill_campaign%TYPE,
+                        p_e_camp_code    om_short_fscode.sfsbill_campaign%TYPE,
+                        p_fs_code        om_short_fscode.sfsfinished_code%TYPE,
+                        p_curr_date      DATE,
+                        p_prior_date     DATE)
+        IS
+            SELECT ou_code,
+                   fs_code,
+                   camp_code,
+                   bill_code,
+                   brand,
+                   price,
+                   estimate_sales_unit,
+                   estimate_actual_unit,
+                   estimate_accum_unit,
+                   SUM (estimate_sales_unit) OVER (PARTITION BY fs_code) estimate_sales_unit_by_fs,
+                   SUM (estimate_actual_unit) OVER (PARTITION BY fs_code) estimate_actual_unit_by_fs,
+                   SUM (estimate_accum_unit) OVER (PARTITION BY fs_code) estimate_accum_unit_by_fs
+              FROM (SELECT bd.bdtou_code ou_code,
+                           bd.bdtfinished_code fs_code,
+                           bd.bdtcampaign camp_code,
+                           bd.bdtbill_code bill_code,
+                           bd.bdtbrand brand,
+                           bd.bdtprice price,
+                           getestimate_sales_unit (DECODE (p_ou_code, 'B11', '000', p_ou_code),
+                                                   p_camp_code,
+                                                   bd.bdtcampaign,
+                                                   bd.bdtbill_code,
+                                                   bd.bdtfinished_code,
+                                                   bd.bdtbrand) estimate_sales_unit,
+                           getestimate_actual_unit (DECODE (p_ou_code, 'B11', '000', p_ou_code),
+                                                    p_camp_code,
+                                                    bd.bdtcampaign,
+                                                    bd.bdtbill_code,
+                                                    bd.bdtfinished_code,
+                                                    bd.bdtbrand,
+                                                    p_curr_date,
+                                                    p_prior_date) estimate_actual_unit,
+                           getestimate_accum_unit (DECODE (p_ou_code, 'B11', '000', p_ou_code),
+                                                   p_camp_code,
+                                                   bd.bdtcampaign,
+                                                   bd.bdtbill_code,
+                                                   bd.bdtfinished_code,
+                                                   bd.bdtbrand) estimate_accum_unit
+                      FROM om_billing_dtl bd,
+                           om_billing_hdr bh,
+                           su_param_dtl pad
+                     WHERE bh.bilou_code = DECODE (p_ou_code, 'B11', '000', p_ou_code)
+                       AND SUBSTR (bh.bilcampaign, 3, 4) || SUBSTR (bh.bilcampaign, 1, 2) BETWEEN SUBSTR (p_s_camp_code, 3, 4) || SUBSTR (p_s_camp_code, 1, 2) AND SUBSTR (p_e_camp_code, 3, 4) || SUBSTR (p_e_camp_code, 1, 2)
+                       AND NVL (bh.bilinactive_status, '0') = '0'
+                       AND bd.bdtfinished_code LIKE NVL (p_fs_code, '%')
+                       AND chkshortage_limit (p_ou_code,
+                                              bh.bilcampaign,
+                                              bh.bilbill_code,
+                                              p_curr_date) = 0
+                       -- Check Brand @ 23/07/2012 --
+                       AND pad.padparam_id = 1
+                       AND DECODE (p_flag, 0, NVL (pad.padflag2, '0'), '1') = '1'
+                       AND pad.padentry_code = bd.bdtbrand
+                       --
+                       AND bh.bilou_code = bd.bdtou_code
+                       AND bh.bilcampaign = bd.bdtcampaign
+                       AND bh.bilbill_code = bd.bdtbill_code)
+            ORDER BY ou_code, fs_code, camp_code, bill_code;
+
+        v_curr_date        DATE := TRUNC (p_curr_date);
+        v_s_camp_code      db_campaign.cpgcampaign_code%TYPE;
+        v_e_camp_code      db_campaign.cpgcampaign_code%TYPE;
+        v_gp_percent       mk_saleplan_dtl.spdcur_gp_percent%TYPE; --om_short_fscode.sfsgp_percent%TYPE;
+        v_short_limit      om_short_fscode.sfsshort_limit%TYPE;
+        v_weight_sales     om_short_fscode.sfsweight_salesplan%TYPE;
+        v_weight_actual    om_short_fscode.sfsweight_actual%TYPE;
+        v_weight_accum     om_short_fscode.sfsweight_accum%TYPE;
+        v_allocate_short   NUMBER;
+        v_wdate            DATE;
+
+        po_status          NUMBER;
+        po_error_desc      VARCHAR2 (200);
+    BEGIN
+        s_date      := SYSDATE;
+        s_count_suc := 0;
+        s_count_err := 0;
+
+        IF p_ou_code = 'B11'
+        THEN
+            getcamp_code_period ('000', p_camp_code, v_s_camp_code, v_e_camp_code);
+        ELSE
+            getcamp_code_period (p_ou_code, p_camp_code, v_s_camp_code, v_e_camp_code);
+        END IF;
+
+        v_wdate := getprior_ship_date (TRUNC (v_curr_date));
+
+        FOR i IN c_data (p_ou_code,
+                         p_camp_code,
+                         v_s_camp_code,
+                         v_e_camp_code,
+                         p_fs_code,
+                         v_curr_date,
+                         v_wdate)
+        LOOP
+            po_status       := 0;
+            po_error_desc   := NULL;
+
+            v_weight_sales  := calweight_unit (i.estimate_sales_unit, i.estimate_sales_unit_by_fs);
+            v_weight_actual := calweight_unit (i.estimate_actual_unit, i.estimate_actual_unit_by_fs);
+            v_weight_accum  := calweight_unit (i.estimate_accum_unit, i.estimate_accum_unit_by_fs);
+            v_gp_percent    := getgp_percent (p_ou_code, i.brand, i.camp_code, i.fs_code);
+
+            IF p_flag = 0
+            THEN
+                --Update by Chakrit U. @25/03/2011 (Get short limit on program)
+                -- v_allocate_short := NVL (v_weight_sales, 0) * NVL (geton_hand (p_ou_code, i.fs_code), 0) / 100;
+
+                -- 02/03/2012 CR#...Allocate Weight Unit on BSMART and AS400
+                v_allocate_short := NVL (v_weight_sales, 0) * NVL (getAvailable (p_ou_code, i.fs_code, v_curr_date, p_camp_code ), 0) / 100;
+
+            ELSE
+                --v_short_limit    := getShort_Limit (p_ou_code, i.fs_code, p_eff_sdate, i.camp_code, i.bill_code);
+                v_allocate_short := NULL;
+            END IF;
+
+            <<insshort_fscode>>
+            BEGIN
+                --DBMS_OUTPUT.PUT_LINE (' Prepare Short >> '||i.fs_code||' billing '||i.bill_code||'    '||p_short_msg);
+                INSERT
+                  INTO om_short_fscode
+                       (sfssession_id, sfsou_code, sfsfinished_code,
+                        sfseff_sdate, sfseff_edate, sfsbill_campaign,
+                        sfsbill_code, sfsgeneral_price, sfsgp_percent,
+                        sfssalesplan_unit, sfsweight_salesplan, sfsactual_unit,
+                        sfsweight_actual, sfsaccum_unit, sfsweight_accum,
+                        sfsshort_limit, sfsinout_type, sfsinout_limit,
+                        sfsshort_code, sfsshort_message, sfsback_campaign,
+                        sfssubbill_campaign, sfssubbill_code, sfssubfinished_code,
+                        sfsfree_status, sfssub_limit)
+                VALUES (p_session_id, p_ou_code, i.fs_code,
+                        p_eff_sdate, p_eff_edate, i.camp_code,
+                        i.bill_code, i.price, v_gp_percent,
+                        i.estimate_sales_unit, v_weight_sales, i.estimate_actual_unit,
+                        v_weight_actual, i.estimate_accum_unit, v_weight_accum,
+                        NULL /*v_short_limit*/, '+', v_allocate_short,
+                        p_short_code, p_short_msg, NULL,
+                        NULL, p_sub_bill, p_sub_fs,
+                        0, NULL);
+            EXCEPTION
+                WHEN DUP_VAL_ON_INDEX
+                THEN
+                    po_status     := -9;
+                    po_error_desc := 'Insert : ' || SUBSTR (SQLERRM, 1, 200);
+                    pkgsu_jobs.write_to_log (p_jobno,
+                                             'ERR',
+                                             po_error_desc,
+                                             'Prepare Short',
+                                             SYSDATE,
+                                             SYSDATE,
+                                             i.fs_code || ':' || TO_CHAR (p_eff_sdate, 'DDMMRRRR') || ':' || TO_CHAR (p_eff_edate, 'DDMMRRRR') || ':' || i.camp_code || ':' || i.bill_code,
+                                             p_jobno,
+                                             'SHORT',
+                                             'SHORT');
+                WHEN OTHERS
+                THEN
+                    po_status     := -9;
+                    po_error_desc := 'Insert : ' || SUBSTR (SQLERRM, 1, 200);
+                    pkgsu_jobs.write_to_log (p_jobno,
+                                             'ERR',
+                                             po_error_desc,
+                                             'Prepare Short',
+                                             SYSDATE,
+                                             SYSDATE,
+                                             i.fs_code || ':' || TO_CHAR (p_eff_sdate, 'DDMMRRRR') || ':' || TO_CHAR (p_eff_edate, 'DDMMRRRR') || ':' || i.camp_code || ':' || i.bill_code,
+                                             p_jobno,
+                                             'SHORT',
+                                             'SHORT');
+            END insshort_fscode;
+
+            IF NVL (po_status, 0) < 0
+            THEN
+                s_count_err := s_count_err + 1;
+            ELSE
+                s_count_suc := s_count_suc + 1;
+            END IF;
+        END LOOP;
+
+        e_date := SYSDATE;
+
+        IF NVL (s_count_err, 0) > 0
+        THEN
+            pkgsu_jobs.write_monitor (p_jobno,
+                                      s_working_date,
+                                      'Error : Prepare Short',
+                                      s_date,
+                                      e_date,
+                                      s_count_suc,
+                                      s_count_err,
+                                      'RECORDS',
+                                      'W',
+                                      'SHORT',
+                                      SYSDATE,
+                                      'SHORT');
+        ELSE
+            pkgsu_jobs.write_monitor (p_jobno,
+                                      s_working_date,
+                                      'Complete : Prepare Short',
+                                      s_date,
+                                      e_date,
+                                      s_count_suc,
+                                      s_count_err,
+                                      'RECORDS',
+                                      'C',
+                                      'SHORT',
+                                      SYSDATE,
+                                      'SHORT');
+        END IF;
+
+        COMMIT;
+    END prepareauto_short;
+
+    PROCEDURE processauto_short (
+        p_ou_code        om_short_fscode.sfsou_code%TYPE,
+        p_camp_code      om_short_fscode.sfsbill_campaign%TYPE,
+        p_fs_seq         om_short_hdr.shtfinished_seq%TYPE,
+        p_eff_sdate      om_short_fscode.sfseff_sdate%TYPE,
+        p_eff_edate      om_short_fscode.sfseff_edate%TYPE,
+        p_reason_code    om_short_hdr.shtreason_code%TYPE,
+        p_curr_date      DATE,
+        p_user           VARCHAR2,
+        p_prog_id        VARCHAR2,
+        p_session_id     NUMBER,
+        p_jobno          su_jobs_regis.jbrjob_no%TYPE,
+        p_flag           NUMBER DEFAULT 1, --> 0=For process day end, 1=For program short and sub.
+        p_short_seq      om_short_dtl.shdshort_seq%TYPE DEFAULT NULL
+    )
+    IS
+        CURSOR c_hdr (
+            p_session_id   om_short_fscode.sfssession_id%TYPE
+        )
+        IS
+            SELECT padcha1 curcamp,
+                        sfs.sfsfinished_code,
+                        NVL (MAX (shtfinished_seq), 0) sfsfinished_seq
+              FROM om_short_hdr sht,
+                       om_short_fscode sfs,
+                       su_param_dtl
+             WHERE padparam_id = 99
+               AND padentry_code = '8'
+               AND sfs.sfssession_id = p_session_id
+               AND sfs.sfsshort_code IS NOT NULL
+               AND (   (    p_flag = 1
+                        AND NVL (sfs.sfsinout_limit, 0) + NVL (sfs.sfssub_limit, 0) > 0)
+                    OR (    p_flag = 0
+                        AND NVL (sfs.sfsinout_limit, 0) > 0))
+               AND sfs.sfsou_code = sht.shtou_code(+)
+               AND sfs.sfsfinished_code = sht.shtfinished_code(+)
+               AND sfs.sfseff_sdate = sht.shteff_sdate(+)
+            GROUP BY padcha1, sfs.sfsfinished_code;
+
+        CURSOR c_dtl ( p_session_id   om_short_fscode.sfssession_id%type,
+                               p_fs_code      om_short_fscode.sfsfinished_code%type)
+        IS
+            SELECT *
+              FROM om_short_fscode
+             WHERE sfssession_id = p_session_id
+               AND sfsfinished_code = p_fs_code
+               AND sfsshort_code IS NOT NULL
+               AND (   (    p_flag = 1
+                        AND NVL (sfsinout_limit, 0) + NVL (sfssub_limit, 0) > 0)
+                    OR (    p_flag = 0
+                        AND NVL (sfsinout_limit, 0) > 0));
+
+        v_curr_date     DATE := TRUNC (p_curr_date);
+        v_on_hand       NUMBER;
+        v_short_limit   NUMBER;
+        v_sales_unit    NUMBER;
+        v_per_weight    NUMBER;
+        v_allocate_un   NUMBER;
+        v_chkdup_sub    NUMBER;
+        v_on_order1     om_short_hdr.shtestimate_order1%TYPE;
+        v_on_order2     om_short_hdr.shtestimate_order2%TYPE;
+        v_fs_seq        om_short_hdr.shtfinished_seq%TYPE;
+        v_fs_code_old   om_billing_dtl.bdtfinished_code%TYPE;
+        v_short_seq     om_short_dtl.shdshort_seq%TYPE;
+        v_sub_status    om_short_dtl.shdsubstitute_status%TYPE;
+
+        po_status       NUMBER;
+        po_error_desc   VARCHAR2 (200);
+
+        v_camp_date date;
+    BEGIN
+        s_date      := SYSDATE;
+        s_count_suc := 0;
+        s_count_err := 0;
+
+        v_camp_date := pkgdb_desc.getcurrent_camp_date;
+
+        FOR i0 IN c_hdr (p_session_id)
+        LOOP
+            po_status     := 0;
+            po_error_desc := NULL;
+
+            IF p_fs_seq IS NOT NULL
+            THEN
+                v_fs_seq := p_fs_seq;
+            ELSIF NVL (i0.sfsfinished_seq, 0) > 0
+            THEN
+                v_fs_seq := i0.sfsfinished_seq;
+            ELSE
+                v_fs_seq         := 1;
+                --v_on_hand      := geton_hand (p_ou_code, i0.sfsfinished_code);
+                v_on_hand       := getAvailable (p_ou_code,  i0.sfsfinished_code, v_curr_date, i0.curcamp);
+                v_on_order1     := geton_order (p_ou_code, i0.sfsfinished_code, v_curr_date);
+                v_on_order2     := geton_order (p_ou_code, i0.sfsfinished_code, v_curr_date + 1);
+                v_short_limit     := NVL (v_on_hand, 0) + NVL (v_on_order1, 0);
+
+                <<ins_om_short_hdr>>
+                BEGIN
+                    INSERT
+                      INTO om_short_hdr
+                           (shtou_code, shtfinished_code, shtfinished_seq,
+                            shteff_sdate, shteff_edate, shtcampaign,
+                            shtreason_code, shtshort_limit, shtestimate_order1,
+                            shtestimate_order2, shtcre_by, shtcre_date,
+                            shtprog_id, shtupd_by, shtupd_date)
+                    VALUES (p_ou_code, i0.sfsfinished_code, v_fs_seq,
+                            p_eff_sdate, p_eff_edate, p_camp_code,
+                            p_reason_code, v_short_limit, v_on_order1,
+                            v_on_order2, p_user, SYSDATE,
+                            p_prog_id, p_user, SYSDATE);
+                EXCEPTION
+                    WHEN DUP_VAL_ON_INDEX
+                    THEN
+                        po_status     := -9;
+                        po_error_desc := 'Insert : ' || SUBSTR (SQLERRM, 1, 200);
+                        pkgsu_jobs.write_to_log (p_jobno,
+                                                 'ERR',
+                                                 po_error_desc,
+                                                 'Auto Short HDR',
+                                                 SYSDATE,
+                                                 SYSDATE,
+                                                 i0.sfsfinished_code || ':' || v_fs_seq || ':' || TO_CHAR (p_eff_sdate, 'DDMMRRRR') || ':' || v_short_seq || ':' || p_reason_code,
+                                                 p_jobno,
+                                                 p_user,
+                                                 p_prog_id);
+                    WHEN OTHERS
+                    THEN
+                        po_status     := -9;
+                        po_error_desc := 'Insert : ' || SUBSTR (SQLERRM, 1, 200);
+                        pkgsu_jobs.write_to_log (p_jobno,
+                                                 'ERR',
+                                                 po_error_desc,
+                                                 'Auto Short HDR',
+                                                 SYSDATE,
+                                                 SYSDATE,
+                                                 i0.sfsfinished_code || ':' || v_fs_seq || ':' || TO_CHAR (p_eff_sdate, 'DDMMRRRR') || ':' || v_short_seq || ':' || p_reason_code,
+                                                 p_jobno,
+                                                 p_user,
+                                                 p_prog_id);
+                END ins_om_short_hdr;
+            END IF;
+
+            FOR i IN c_dtl (p_session_id, i0.sfsfinished_code)
+            LOOP
+                v_short_seq := chkins_short_dtl ( p_ou_code,
+                                                  i.sfsfinished_code,
+                                                  v_fs_seq,
+                                                  i.sfseff_sdate,
+                                                  i.sfsbill_campaign,
+                                                  i.sfsbill_code,
+                                                  i.sfseff_sdate,
+                                                  i.sfseff_edate,
+                                                  '0',
+                                                  '0',
+                                                  '0',
+                                                  '1',
+                                                  '1',
+                                                  '1');
+
+                If i.sfsshort_code = '05' Then
+                     ---- Clear Actual ------
+                    Begin
+                     delete om_short_sub_act
+                    where shbou_code                 = p_ou_code
+                        and shbfinished_code         = i.sfsfinished_code
+                        and trunc(shbsales_date) <= trunc(v_camp_date)
+                        and exists (  select 'x'
+                                            from om_short_dtl
+                                          where shdou_code          = p_ou_code
+                                               and shdfinished_code = i.sfsfinished_code
+                                               and trunc(v_camp_date) >= trunc(shdeffdtl_sdate)
+                                               and trunc(v_camp_date) <= trunc(shdeffdtl_edate)
+                                               and shdshort_code = '05'
+                                               and shbou_code   = shdou_code
+                                               and shbfinished_code = shdfinished_code);
+                    Exception when no_data_found then null;
+                    End;
+
+                    Begin
+                     delete om_short_dtl_act
+                    where shaou_code                 = p_ou_code
+                        and shafinished_code         = i.sfsfinished_code
+                        and trunc(shasales_date) <= trunc(v_camp_date)
+                        and exists (  select 'x'
+                                            from om_short_dtl
+                                          where shdou_code          = p_ou_code
+                                               and shdfinished_code = i.sfsfinished_code
+                                               and trunc(v_camp_date) >= trunc(shdeffdtl_sdate)
+                                               and trunc(v_camp_date) <= trunc(shdeffdtl_edate)
+                                               and shdshort_code = '05'
+                                               and shaou_code   = shdou_code
+                                               and shafinished_code = shdfinished_code);
+                    Exception when no_data_found then null;
+                    End;
+                End If;
+
+                If nvl (v_short_seq, 0) = 0 Then
+                    v_short_seq  := getmax_short_seq (p_ou_code, i.sfsfinished_code, v_fs_seq);
+                    v_sales_unit := NULL;
+                    /*v_sales_unit := fndcurrentshort_unit (p_ou_code,
+                                                          i.sfsfinished_code,
+                                                          v_fs_seq,
+                                                          v_short_seq,
+                                                          i.sfsbill_campaign,
+                                                          i.sfsbill_code,
+                                                          p_eff_sdate,
+                                                          p_eff_edate);*/
+
+                    <<getsub_status>>
+                    BEGIN
+                        SELECT '1'
+                          INTO v_sub_status
+                          FROM su_param_dtl
+                         WHERE padparam_id = 308
+                           AND padentry_code = i.sfsshort_code
+                           AND NVL (UPPER (padflag3), '0') IN ('Y', '1');
+                    EXCEPTION
+                        WHEN NO_DATA_FOUND
+                        THEN
+                            v_sub_status := '0';
+                        WHEN OTHERS
+                        THEN
+                            v_sub_status := '0';
+                    END getsub_status;
+
+                    <<ins_om_short_dtl>>
+                    BEGIN
+                        --DBMS_OUTPUT.PUT_LINE ('   Create short detail >> '||i.sfsbill_code||' '||i.sfsinout_limit||' '||i.sfsshort_message);
+                        INSERT
+                          INTO om_short_dtl
+                               (shdou_code, shdfinished_code, shdfinished_seq,
+                                shdeff_sdate, shdshort_seq, shdbill_campaign,
+                                shdbill_code, shdshort_limit, shdmaximum_ord,
+                                shdback_campaign, shdback_bill_code, shdshort_code,
+                                shdshort_message, shdeffdtl_sdate, shdeffdtl_edate,
+                                shdsubstitute_status, shdsubstitute_date, shdbydistrict_status,
+                                shdbydistrict_date, shdbyrept_status, shdbyrept_date,
+                                shdbyactivity_status, shdbyactivity_date, shdremark,
+                                shdcre_by, shdcre_date, shdprog_id,
+                                shdupd_by, shdupd_date, shdauto_limit,
+                                shdprint_inv, shdflag1, shdflag2,
+                                shdflag3, shdsales_unit)
+                        VALUES (p_ou_code, i.sfsfinished_code, v_fs_seq,
+                                p_eff_sdate, v_short_seq, i.sfsbill_campaign,
+                                i.sfsbill_code, i.sfsinout_limit, NULL,
+                                i.sfsback_campaign, NULL, i.sfsshort_code,
+                                i.sfsshort_message, i.sfseff_sdate, i.sfseff_edate,
+                                v_sub_status, TRUNC (SYSDATE), '0',
+                                TRUNC (SYSDATE), '0', TRUNC (SYSDATE),
+                                '0', TRUNC (SYSDATE), '-',
+                                p_user, SYSDATE, p_prog_id,
+                                p_user, SYSDATE, i.sfsinout_limit,
+                                '1', '1', '1',
+                                '1', v_sales_unit);
+                    EXCEPTION
+                        WHEN DUP_VAL_ON_INDEX
+                        THEN
+                            po_status     := -9;
+                            po_error_desc := 'Insert : ' || SUBSTR (SQLERRM, 1, 200);
+                            pkgsu_jobs.write_to_log (p_jobno,
+                                                     'ERR',
+                                                     po_error_desc,
+                                                     'Auto Short DTL',
+                                                     SYSDATE,
+                                                     SYSDATE,
+                                                     i.sfsfinished_code || ':' || v_fs_seq || ':' || TO_CHAR (p_eff_sdate, 'DDMMRRRR') || ':' || v_short_seq || ':' || i.sfsbill_campaign || ':' || i.sfsbill_code,
+                                                     p_jobno,
+                                                     p_user,
+                                                     p_prog_id);
+                        WHEN OTHERS
+                        THEN
+                            po_status     := -9;
+                            po_error_desc := 'Insert : ' || SUBSTR (SQLERRM, 1, 200);
+                            pkgsu_jobs.write_to_log (p_jobno,
+                                                     'ERR',
+                                                     po_error_desc,
+                                                     'Auto Short DTL',
+                                                     SYSDATE,
+                                                     SYSDATE,
+                                                     i.sfsfinished_code || ':' || v_fs_seq || ':' || TO_CHAR (p_eff_sdate, 'DDMMRRRR') || ':' || v_short_seq || ':' || i.sfsbill_campaign || ':' || i.sfsbill_code,
+                                                     p_jobno,
+                                                     p_user,
+                                                     p_prog_id);
+                    END ins_om_short_dtl;
+                ELSE
+                    v_short_seq := nvl(p_short_seq, v_short_seq);
+
+                    <<upd_om_short_dtl>>
+                    BEGIN
+                        UPDATE om_short_dtl
+                           SET  shdshort_limit = DECODE (p_flag, 0, 0, NVL (shdshort_limit, 0)) + (NVL (i.sfsinout_limit, 0) * DECODE (NVL (i.sfsinout_type, '+'), '+', 1, -1)),
+                                   shdauto_limit  = DECODE (p_flag, 0, NVL (shdshort_limit, 0) + (NVL (i.sfsinout_limit, 0) * DECODE (NVL (i.sfsinout_type, '+'), '+', 1, -1)), shdauto_limit),
+                                   shdprog_id     = p_prog_id,
+                                   shdupd_by      = p_user,
+                                   shdupd_date    = SYSDATE
+                         WHERE shdou_code = p_ou_code
+                           AND shdfinished_code = i.sfsfinished_code
+                           AND shdfinished_seq = v_fs_seq
+                           AND shdeff_sdate = p_eff_sdate
+                           AND shdshort_seq = v_short_seq
+                           AND shdshort_code = '05'; ---i.sfsshort_code;
+                    EXCEPTION
+                        WHEN NO_DATA_FOUND
+                        THEN
+                            NULL;
+                        WHEN OTHERS
+                        THEN
+                            po_status     := -9;
+                            po_error_desc := 'Update : ' || SUBSTR (SQLERRM, 1, 200);
+                            pkgsu_jobs.write_to_log (p_jobno,
+                                                     'ERR',
+                                                     po_error_desc,
+                                                     'Auto Short',
+                                                     SYSDATE,
+                                                     SYSDATE,
+                                                     i.sfsfinished_code || ':' || v_fs_seq || ':' || TO_CHAR (p_eff_sdate, 'DDMMRRRR') || ':' || v_short_seq || ':' || i.sfsbill_campaign || ':' || i.sfsbill_code,
+                                                     p_jobno,
+                                                     p_user,
+                                                     p_prog_id);
+                    END upd_om_short_dtl;
+                END IF;
+
+                IF i.sfssubbill_campaign IS NOT NULL
+                AND i.sfssubbill_code IS NOT NULL
+                THEN
+                    <<chkdup_sub>>
+                    BEGIN
+                        SELECT 1
+                          INTO v_chkdup_sub
+                          FROM om_short_sub
+                         WHERE shsou_code = p_ou_code
+                           AND shsfinished_code = i.sfsfinished_code
+                           AND shsfinished_seq = v_fs_seq
+                           AND shseff_sdate = p_eff_sdate
+                           AND shsshort_seq = v_short_seq
+                           AND shsbill_campaign = i.sfsbill_campaign
+                           AND shsbill_code = i.sfssubbill_code;
+                           --AND NVL (shsfree_status, '0') = i.sfsfree_status;
+                    EXCEPTION
+                        WHEN NO_DATA_FOUND
+                        THEN
+                            v_chkdup_sub := 0;
+                    END chkdup_sub;
+
+                    IF v_chkdup_sub = 0
+                    THEN
+                        <<ins_om_short_sub>>
+                        BEGIN
+                            INSERT
+                              INTO om_short_sub
+                                   (shsou_code, shsfinished_code, shsfinished_seq,
+                                    shseff_sdate, shsshort_seq, shsbill_campaign,
+                                    shsbill_code, shsfinished_code_sub, shssub_limit,
+                                    shsfree_status, shsfree_date, shsprecedence,
+                                    shseffsub_sdate, shseffsub_edate, shscre_by,
+                                    shscre_date, shsprog_id, shsupd_by,
+                                    shsupd_date)
+                            VALUES (p_ou_code, i.sfsfinished_code, v_fs_seq,
+                                    p_eff_sdate, v_short_seq, p_camp_code,
+                                    i.sfssubbill_code, i.sfssubfinished_code, i.sfssub_limit,
+                                    i.sfsfree_status, DECODE (i.sfsfree_status, '0', NULL, TRUNC (SYSDATE)), 1,
+                                    i.sfseff_sdate, i.sfseff_edate, p_user,
+                                    SYSDATE, p_prog_id, p_user,
+                                    SYSDATE);
+                        EXCEPTION
+                            WHEN DUP_VAL_ON_INDEX
+                            THEN
+                                po_status     := -9;
+                                po_error_desc := 'Insert : ' || SUBSTR (SQLERRM, 1, 200);
+                                pkgsu_jobs.write_to_log (p_jobno,
+                                                         'ERR',
+                                                         po_error_desc,
+                                                         'Auto Substitute',
+                                                         SYSDATE,
+                                                         SYSDATE,
+                                                         i.sfsfinished_code || ':' || v_fs_seq || ':' || TO_CHAR (p_eff_sdate, 'DDMMRRRR') || ':' || v_short_seq || ':' || i.sfsbill_campaign || ':' || i.sfsbill_code || ':' || i.sfssubbill_code,
+                                                         p_jobno,
+                                                         p_user,
+                                                         p_prog_id);
+                            WHEN OTHERS
+                            THEN
+                                po_status     := -9;
+                                po_error_desc := 'Insert : ' || SUBSTR (SQLERRM, 1, 200);
+                                pkgsu_jobs.write_to_log (p_jobno,
+                                                         'ERR',
+                                                         po_error_desc,
+                                                         'Auto Substitute',
+                                                         SYSDATE,
+                                                         SYSDATE,
+                                                         i.sfsfinished_code || ':' || v_fs_seq || ':' || TO_CHAR (p_eff_sdate, 'DDMMRRRR') || ':' || v_short_seq || ':' || i.sfsbill_campaign || ':' || i.sfsbill_code || ':' || i.sfssubbill_code,
+                                                         p_jobno,
+                                                         p_user,
+                                                         p_prog_id);
+                        END ins_om_short_sub;
+                    ELSE
+                        <<upd_om_short_dtl>>
+                        BEGIN
+                            UPDATE om_short_sub
+                               SET shssub_limit = DECODE (p_flag, 0, 0, NVL (shssub_limit, 0)) + (NVL (i.sfssub_limit, 0) * DECODE (NVL (i.sfsinout_subtype, '+'), '+', 1, -1)),
+                                   shsprog_id   = p_prog_id,
+                                   shsupd_by    = p_user,
+                                   shsupd_date  = SYSDATE
+                             WHERE shsou_code = p_ou_code
+                               AND shsfinished_code = i.sfsfinished_code
+                               AND shsfinished_seq = v_fs_seq
+                               AND shseff_sdate = p_eff_sdate
+                               AND shsshort_seq = v_short_seq
+                               AND shsbill_campaign = i.sfsbill_campaign
+                               AND shsbill_code = i.sfssubbill_code;
+                        EXCEPTION
+                            WHEN NO_DATA_FOUND
+                            THEN
+                                NULL;
+                            WHEN OTHERS
+                            THEN
+                                po_status     := -9;
+                                po_error_desc := 'Update : ' || SUBSTR (SQLERRM, 1, 200);
+                                pkgsu_jobs.write_to_log (p_jobno,
+                                                         'ERR',
+                                                         po_error_desc,
+                                                         'Auto Substitute',
+                                                         SYSDATE,
+                                                         SYSDATE,
+                                                         i.sfsfinished_code || ':' || v_fs_seq || ':' || TO_CHAR (p_eff_sdate, 'DDMMRRRR') || ':' || v_short_seq || ':' || i.sfsbill_campaign || ':' || i.sfsbill_code || ':' || i.sfssubbill_code,
+                                                         p_jobno,
+                                                         p_user,
+                                                         p_prog_id);
+                        END upd_om_short_dtl;
+                    END IF;
+                END IF;
+
+                <<ins_om_short_log>>
+                BEGIN
+                    INSERT
+                      INTO om_short_log
+                           (shlou_code, shlfinished_code, shleff_sdate,
+                            shleff_edate, shlbill_campaign, shlbill_code,
+                            shlgeneral_price, shlgp_percent, shlsalesplan_unit,
+                            shlweight_salesplan, shlactual_unit, shlweight_actual,
+                            shlaccum_unit, shlweight_accum, shlshort_limit,
+                            shlinout_type, shlinout_limit, shlshort_code,
+                            shlshort_message, shlback_campaign, shlsubbill_campaign,
+                            shlsubbill_code, shlsubfinished_code, shlfree_status,
+                            shlsub_limit, shlcre_by, shlcre_date,
+                            shlprog_id, shlupd_by, shlupd_date)
+                    VALUES (p_ou_code, i.sfsfinished_code, i.sfseff_sdate,
+                            i.sfseff_edate, p_camp_code, i.sfsbill_code,
+                            i.sfsgeneral_price, i.sfsgp_percent, i.sfssalesplan_unit,
+                            i.sfsweight_salesplan, i.sfsactual_unit, i.sfsweight_actual,
+                            i.sfsaccum_unit, i.sfsweight_accum, i.sfsshort_limit,
+                            i.sfsinout_type, i.sfsinout_limit, i.sfsshort_code,
+                            i.sfsshort_message, i.sfsback_campaign, i.sfssubbill_campaign,
+                            i.sfssubbill_code, i.sfssubfinished_code, i.sfsfree_status,
+                            i.sfssub_limit, p_user, SYSDATE,
+                            p_prog_id, p_user, SYSDATE);
+                EXCEPTION
+                    WHEN DUP_VAL_ON_INDEX
+                    THEN
+                        NULL;
+                    WHEN OTHERS
+                    THEN
+                        NULL;
+                END ins_om_short_log;
+
+                v_fs_code_old := i.sfsfinished_code;
+
+                IF NVL (po_status, 0) < 0
+                THEN
+                    s_count_err := s_count_err + 1;
+                ELSE
+                    s_count_suc := s_count_suc + 1;
+                END IF;
+            END LOOP;
+        END LOOP;
+
+        e_date      := SYSDATE;
+
+        IF NVL (s_count_err, 0) > 0
+        THEN
+            pkgsu_jobs.write_monitor (p_jobno,
+                                      s_working_date,
+                                      'Error : Auto Short',
+                                      s_date,
+                                      e_date,
+                                      s_count_suc,
+                                      s_count_err,
+                                      'RECORDS',
+                                      'W',
+                                      p_user,
+                                      SYSDATE,
+                                      p_prog_id);
+        ELSE
+            pkgsu_jobs.write_monitor (p_jobno,
+                                      s_working_date,
+                                      'Complete',
+                                      s_date,
+                                      e_date,
+                                      s_count_suc,
+                                      s_count_err,
+                                      'RECORDS',
+                                      'C',
+                                      p_user,
+                                      SYSDATE,
+                                      p_prog_id);
+        END IF;
+
+        COMMIT;
+    END processauto_short;
+
+    PROCEDURE processauto_backup (p_curr_date DATE)
+    IS
+        v_wdate   DATE;
+    BEGIN
+        v_wdate := getprior_ship_date (TRUNC (p_curr_date));
+
+       <<insShort_Hist>>
+        BEGIN
+            INSERT /*+append*/
+              INTO om_short_dtl_hist
+                   (shhou_code, shhfinished_code, shhfinished_seq,
+                   shheff_sdate, shhshort_seq, shhwdate,
+                   shhbill_campaign, shhbill_code, shhshort_limit,
+                   shhauto_limit, shhsales_unit, shhmaximum_ord,
+                   shhback_campaign, shhback_bill_campaign, shhback_bill_code,
+                   shhshort_code, shhshort_message, shhprint_inv,
+                   shheffdtl_sdate, shheffdtl_edate, shhsubstitute_status,
+                   shhsubstitute_date, shhbydistrict_status, shhbydistrict_date,
+                   shhbyrept_status, shhbyrept_date, shhbyactivity_status,
+                   shhbyactivity_date, shhbysource_status, shhbysource_date,
+                   shhremark, shhflag1, shhflag2,
+                   shhflag3, shhinactive_status, shhinactive_date,
+                   shhcre_by, shhcre_date, shhprog_id,
+                   shhupd_by, shhupd_date)
+            SELECT shdou_code,
+                   shdfinished_code,
+                   shdfinished_seq,
+                   shdeff_sdate,
+                   shdshort_seq,
+                   v_wdate,
+                   shdbill_campaign,
+                   shdbill_code,
+                   shdshort_limit,
+                   shdauto_limit,
+                   fndcurrentshort_unit (shdou_code,
+                                         shdfinished_code,
+                                         shdfinished_seq,
+                                         shdshort_seq,
+                                         shdbill_campaign,
+                                         shdbill_code,
+                                         shteff_sdate,
+                                         shteff_edate),
+                   shdmaximum_ord,
+                   shdback_campaign,
+                   shdback_bill_campaign,
+                   shdback_bill_code,
+                   shdshort_code,
+                   shdshort_message,
+                   shdprint_inv,
+                   shdeffdtl_sdate,
+                   shdeffdtl_edate,
+                   shdsubstitute_status,
+                   shdsubstitute_date,
+                   shdbydistrict_status,
+                   shdbydistrict_date,
+                   shdbyrept_status,
+                   shdbyrept_date,
+                   shdbyactivity_status,
+                   shdbyactivity_date,
+                   shdbysource_status,
+                   shdbysource_date,
+                   shdremark,
+                   shdflag1,
+                   shdflag2,
+                   shdflag3,
+                   shdinactive_status,
+                   shdinactive_date,
+                   shdcre_by,
+                   shdcre_date,
+                   shdprog_id,
+                   shdupd_by,
+                   shdupd_date
+              FROM om_short_dtl, om_short_hdr
+             WHERE shteff_sdate = v_wdate
+               AND shtou_code = shdou_code
+               AND shtfinished_code = shdfinished_code
+               AND shtfinished_seq = shdfinished_seq
+               AND shteff_sdate = shdeff_sdate;
+
+            COMMIT;
+        EXCEPTION
+            WHEN DUP_VAL_ON_INDEX
+            THEN
+                NULL;
+            WHEN OTHERS
+            THEN
+                NULL;
+        END insshort_hist;
+    END processauto_backup;
+
+    --
+    -- Main Process for Dayend.
+    --
+    PROCEDURE generateauto_short (
+        p_ou_code       om_short_fscode.sfsou_code%TYPE,
+        p_camp_code     om_short_fscode.sfsbill_campaign%TYPE,
+        p_curr_date     DATE,
+        p_user          VARCHAR2,
+        p_prog_id       VARCHAR2,
+        p_session_id    NUMBER,
+        p_jobno         su_jobs_regis.jbrjob_no%TYPE
+    )
+    IS
+        v_curr_date     DATE;
+        v_eff_sdate     om_short_hdr.shteff_sdate%TYPE;
+        v_eff_edate     om_short_hdr.shteff_edate%TYPE;
+        v_short_code    om_short_dtl.shdshort_code%TYPE;
+        v_short_msg     om_short_dtl.shdshort_message%TYPE;
+        v_reason_code   om_short_hdr.shtreason_code%TYPE;
+        v_session_id    NUMBER;
+    BEGIN
+        v_curr_date := TRUNC (p_curr_date);
+
+        IF p_session_id = -1
+        THEN
+            BEGIN
+                SELECT USERENV ('SESSIONID') INTO v_session_id FROM DUAL;
+            EXCEPTION
+                WHEN OTHERS
+                THEN
+                    NULL;
+            END;
+        ELSE
+            v_session_id := p_session_id;
+        END IF;
+
+        --- Prepare Temporary
+        getcamp_date_period (p_ou_code, p_camp_code, v_eff_sdate, v_eff_edate);
+        getdefault_desc (v_reason_code, v_short_code, v_short_msg);
+        delom_short_fscode (v_session_id);
+
+        calAverage_OnHand (p_ou_code, v_curr_date, p_user, p_prog_id);
+
+        --- Main Process
+        prepareauto_short (p_ou_code,
+                                       p_camp_code,
+                                       NULL,
+                                       v_eff_sdate,
+                                       to_date('31/12/2012', 'dd/mm/yyyy'),
+                                       v_short_code,
+                                       v_short_msg,
+                                       NULL,
+                                       NULL,
+                                       v_curr_date,
+                                       v_session_id,
+                                       p_jobno,
+                                       0);
+
+        s_date      := SYSDATE;
+        processauto_backup (v_curr_date);
+        e_date      := SYSDATE;
+
+        pkgsu_jobs.write_monitor (   p_jobno,
+                                                  s_working_date,
+                                                  'Complete : Backup Short',
+                                                  s_date,
+                                                  e_date,
+                                                  s_count_suc,
+                                                  s_count_err,
+                                                  'RECORDS',
+                                                  'C',
+                                                  p_user,
+                                                  SYSDATE,
+                                                  p_prog_id);
+
+        processauto_short (  p_ou_code,
+                                       p_camp_code,
+                                       NULL,
+                                       v_eff_sdate,
+                                       to_date('31/12/2012', 'dd/mm/yyyy'),
+                                       v_reason_code,
+                                       v_curr_date,
+                                       p_user,
+                                       p_prog_id,
+                                       v_session_id,
+                                       p_jobno,
+                                       0);
+
+        --- Clear Temporary
+        delom_short_fscode (v_session_id);
+    END generateauto_short;
+END pkgom_short_product;
+/

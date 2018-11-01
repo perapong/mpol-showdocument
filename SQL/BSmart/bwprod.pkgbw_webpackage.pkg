@@ -1,0 +1,1266 @@
+CREATE OR REPLACE PACKAGE "PKGBW_WEBPACKAGE" IS
+--
+-- Purpose: Briefly explain the functionality of the package
+--
+-- MODIFICATION HISTORY
+-- Person      Date    Comments
+-- ---------   ------  ------------------------------------------
+   -- Enter package declarations as shown below
+--- menu_level,menu_label,icon_name,url_link
+
+Type WebMenu   is record( menu_level  NUMBER(6), menu_label VARCHAR2(200), icon_name VARCHAR2(50) , url_link VARCHAR2(300)) ;
+
+Type CndDtlCause  is record( ou_code varchar2(3) ,srccond  varchar2(5),media_code  varchar2(5) ,sales_campaign  varchar2(6) ,
+                            condition_code varchar2(6),
+                            from_page varchar2(6),to_page varchar2(6),
+                            page_seq number(5,0) ,finished_code  varchar2(10) , fs_name VARCHAR2(200), bill_campaign char(6),
+                            bill_code   varchar2(6) ,Bill_name   VARCHAR2(200)  , free_flag  varchar2(1) ,free_status varchar2(10), free_date   date,
+                            bill_type  varchar2(5 ) ,bill_factor  number(3,0) , discount_flag  varchar2(1 ),discount_flagdesc varchar2(20 ),
+                            discount_percent  number(5,2),sales_price  number(11,2),net_price   number(11,2),dummy_price  number(11,2),
+                            unlock_flag  varchar2(1 ),unlock_status  varchar2(6 ),unlock_date  date);
+
+Type CndDtlReasult is record(ou_code varchar2(3),SrcCond varchar2(15) , cause_media varchar2(5),cause_sales_camp varchar2(6),cause_condition varchar2(6),
+                            cause_page_seq number(5),result_media_code varchar2(5),result_sales_camp varchar2(6),
+                            result_condition varchar2(6),result_page_seq number(5,0),condition_precedence number(1),except_premium varchar2(1),
+                            except_date date,pair_status varchar2(1),pair_date date,big_group_code varchar2(10),
+                            big_group_date date,big_group_cause varchar2(10),big_group_result varchar2(10),
+                            finished_code varchar2(8), fs_name VARCHAR2(200),bill_campaign varchar2(6),bill_code varchar2(6),Bill_name   VARCHAR2(200) ,
+                            free_flag varchar2(1),
+                            free_date date,codbill_type varchar2(5),codbill_factor number(3,0),coddiscount_flag varchar2(1),
+                            coddiscount_percent number(5,2),codsales_price number(11,2), codnet_price number(11,2),coddummy_price number(11,2),
+                            codunlock_status varchar2(1),unlock_date date);
+
+
+Type TabWebMenu      IS TABLE  OF WebMenu;
+Type PipRecSalesPlan IS TABLE OF BEV$_ECOM_SALESPLAN%ROWTYPE;
+Type PipCndDtlCause  IS TABLE OF CndDtlCause;
+Type PipCndDtlReasult IS TABLE OF CndDtlReasult;
+
+vGbl_OuCode  varchar2(3) :='000';
+
+FUNCTION Get_Order_Status_Desc (Parm_Ord_Status IN OM_CHKPOINT_MAIN.PNTLAST_STATUS%TYPE, Parm_LinId VARCHAR2 DEFAULT 'TH') RETURN  VARCHAR2;
+
+Function Get_InvoiceShortDtl(Parm_OuCode IN VARCHAR2,Parm_Year IN VARCHAR2, Parm_TranGroup IN VARCHAR2, Parm_InvNo IN VARCHAR2,
+                             Parm_BillCamp IN VARCHAR2 ,Parm_BillCode IN VARCHAR2) return varchar2 ;
+
+Function Get_CondPremium_type  (Parm_OuCode    IN VARCHAR2,
+                                Parm_SaleCamp  IN VARCHAR2,
+                                Parm_Media     IN VARCHAR2,
+                                Parm_CondCode1 IN VARCHAR2,
+                                Parm_Opt       IN VARCHAR2 DEFAULt '0' ) return  VARCHAR2;
+
+Function Get_fsname(Parm_FsCode VARCHAR2 ,Parm_LinId VARCHAR2 DEFAULT 'TH') return VARCHAR2  ;
+Function Get_BillName(Parm_OuCode  VARCHAR2 ,Parm_BillCamp  VARCHAR2 ,Parm_BillCode VARCHAR2 ) RETURN  VARCHAR2;
+Function Verified_UserId(Parm_UserId  IN VARCHAR2, Parm_Passwd  IN VARCHAR2) RETURN VARCHAR2 ;
+Function Get_menu (Parm_UserId VARCHAR2)  return TabWebMenu  pipelined ;
+
+Function Get_Member (Parm_RepCode VARCHAR2) return Varchar2 ;
+
+FUNCTION Get_Lasted_BPRPOINT (Parm_RepCode    VARCHAR2,
+                              Parm_PntBalfwd  OUT NOCOPY NUMBER,
+                              Parm_PntBal     OUT NOCOPY NUMBER,
+                              Parm_PntAdj     OUT NOCOPY NUMBER,
+                              Parm_PntUse     OUT NOCOPY NUMBER,
+                              Parm_PntExpire  OUT NOCOPY NUMBER)  return Varchar2 ;
+
+Function ChkBill_noSales(Parm_OuCode VARCHAR2, Parm_Camp  VARCHAR2, Parm_Bill VARCHAR2, Parm_Brand VARCHAR2 ) return varchar2 ;
+
+Function Get_RepStatusBD (Parm_RepCode VARCHAR2)  Return  NUMBER ;
+
+Function GetSalesPlan_Record (Parm_OuCode    IN VARCHAR2,
+                           Parm_CampYear  IN VARCHAR2,
+                           Parm_Brand     IN VARCHAR2 default '1' ,
+                           Parm_Media     IN VARCHAR2 default '01' ) return PipRecSalesPlan  PIPELINED ;
+
+
+Function GetCondCauseDtl  (Parm_OuCode    IN VARCHAR2,
+                           Parm_SaleCamp  IN VARCHAR2,
+                           Parm_Brand     IN VARCHAR2 default '1',
+                           Parm_Media     IN VARCHAR2 default '01',
+                           Parm_CondCode1 IN VARCHAR2 default NULL,
+                           Parm_CondCode2 IN VARCHAR2 default NULL  ) return PipCndDtlCause  PIPELINED ;
+
+Function GetCondResultDtl  (Parm_OuCode    IN VARCHAR2,
+                            Parm_SaleCamp  IN VARCHAR2,
+                            Parm_Media     IN VARCHAR2 default '01',
+                            Parm_CondCode1 IN VARCHAR2 default NULL,
+                            Parm_CondCode2 IN VARCHAR2 default NULL) return PipCndDtlReasult  PIPELINED;
+
+Function get_invoice_unit( Parm_OuCode    VARCHAR2 ,
+                           Parm_Year      VARCHAR2 ,
+                           Parm_Grp       VARCHAR2 ,
+                           Parm_InvNo     VARCHAR2 ,
+                           Parm_BillCamp  VARCHAR2 ,
+                           Parm_Bill      VARCHAR2 ,
+                           Parm_Opt       VARCHAR2 default null ) RETURN NUMBER  ;
+
+
+Function CHK_NON_VM_SHORT (vParam_ou_code      VARCHAR2,
+                            vParam_bill_camp    VARCHAR2,
+                            vParam_bill_code    VARCHAR2,
+                            nParam_order_qty    NUMBER) RETURN NUMBER;
+
+Function Get_NetVM_BooKStock (Parm_OuCode     Varchar2 ,
+                              Parm_SessionId  Varchar2 ,
+                              Parm_Event      Varchar2 ,
+                              Parm_LocCode    Varchar2 ,
+                              Parm_RepCode    Varchar2 ,
+                              Parm_BillCamp   Varchar2 , --- ??????????
+                              Parm_BillCode   Varchar2 ,--- ??????????
+                              Parm_OrdType    Varchar2 , --- ?????? Order
+                              Parm_Ref1       Varchar2 ,---??????  Reference 1
+                              Parm_Ref2       Varchar2 , ---??????  Reference 1
+                              Parm_OrdUnit    NUMBER ,  --- ????????
+                              Parm_BookQty    NUMBER ,
+                              Parm_VmFlag     OUT   VARCHAR2, -->'0' = Not Virtual, '1' = Virtual
+                              Parm_ErrCode    OUT   VARCHAR )  return  NUMBER ;
+
+Function Get_Billcode_VM (Parm_OuCode     Varchar2 ,
+                            Parm_BillCamp   Varchar2 , --- ??????????
+                              Parm_BillCode   Varchar2 --- ??????????
+                               )  return  NUMBER  ;
+
+Function TOS_BackupOrd_Generate (Parm_EntryDate DATE, Parm_Errmsg VARCHAR2  ,Parm_Source VARCHAR2  default 'TOS' ) RETURN  NUMBER ;
+
+Procedure TOS_OrderBackup ( Parm_Oucode  VARCHAR2, Parm_RepCode VARCHAR2 DEFAULT '%' , Parm_ProgId VARCHAR2 ,Parm_ErrMsg OUT VARCHAR2 ) ;
+
+END; -- Package spec
+/
+CREATE OR REPLACE PACKAGE BODY "PKGBW_WEBPACKAGE" IS
+--
+-- Purpose: Briefly explain the functionality of the package body
+--
+-- MODIFICATION HISTORY
+-- Person      Date    Comments
+-- ---------   ------  ------------------------------------------
+--  Mai    12/12/2012   CREATE
+--
+/* ***************************************************** ******************************************** ******************************************* */
+FUNCTION Get_Order_Status_Desc (Parm_Ord_Status  IN OM_CHKPOINT_MAIN.PNTLAST_STATUS%TYPE, Parm_LinId VARCHAR2 DEFAULT 'TH') RETURN  VARCHAR2 IS
+    vTmp  VARCHAR2(500);
+  Begin
+    if Parm_LinId <> 'TH' Then
+        vTmp := PKGOM_TRANSACTION.GETORDER_STATUS_DESC(Parm_Ord_Status);
+        return vTmp;
+    else
+        if     Parm_Ord_Status  = '00'  then  return  'บันทึกข้อมูลการสั่งซื้อ';    --'KEYIN';
+        elsif  Parm_Ord_Status  = '01'  then  return  'กำลังดำเนินการ';             --'COMPLETE';
+        elsif  Parm_Ord_Status  = '11'  then  return  'กำลังดำเนินการ';             --'INCOMPLETE';
+        elsif  Parm_Ord_Status  = '02'  then  return  'อยู่ระหว่างรอตรวจสอบ';       --'PENDING';
+        elsif  Parm_Ord_Status  = '03'  then  return  'กำลังดำเนินการ';             --'CKCOND';
+        elsif  Parm_Ord_Status  = '31'  then  return  'กำลังดำเนินการ';             --'CKWORK';
+        elsif  Parm_Ord_Status  = '32'  then  return  'กำลังดำเนินการ';             --'CKCOMPLETE';
+        elsif  Parm_Ord_Status  = '33'  then  return  'กำลังดำเนินการ';             --'CKINVOICE';
+        elsif  Parm_Ord_Status  = '34'  then  return  'กำลังดำเนินการ';             --'CKAR';
+        elsif  Parm_Ord_Status  = '35'  then  return  'กำลังดำเนินการ';             --'CKSTK';
+        elsif  Parm_Ord_Status  = '04'  then  return  'รอการอนุมัติ';               --'HOLD';
+        elsif  Parm_Ord_Status  = '05'  then  return  'ใบสั่งซื้อได้รับการอนุมัติแล้ว'; --'INVOICE';
+        elsif  Parm_Ord_Status  = '06'  then  return  'กำลังจัดสินค้า';             --'PICKED';
+        elsif  Parm_Ord_Status  = '07'  then  return  'กำลังจัดสินค้า';             --'CHECHKED';
+        elsif  Parm_Ord_Status  = '08'  then  return  'สินค้าจัดเสร็จแล้ว';         --'SHIPPED';
+        elsif  Parm_Ord_Status  = '09'  then  return  'สินค้าอยู่ระหว่างการจัดส่งให้สมาชิก'; --'DELIVERY';
+        elsif  Parm_Ord_Status  = '77'  then  return  'กำลังดำเนินการ';             --'APPROVED';
+        elsif  Parm_Ord_Status  = '80'  then  return  'กำลังดำเนินการ';             --'CS APPROVE';
+        elsif  Parm_Ord_Status  = '85'  then  return  'รอดำเนินการ';                --'WAIT CS';
+        elsif  Parm_Ord_Status  = '88'  then  return  'รอดำเนินการ';                --'WAIT';
+        elsif  Parm_Ord_Status  = '98'  then  return  'ใบสั่งซื้อถูกยกเลิก';        --'C / O';
+        elsif  Parm_Ord_Status  = '99'  then  return  'ใบสั่งซื้อถูกยกเลิก';        --'C / I';
+        else   return null;
+        end if;
+    end if;
+End Get_Order_Status_Desc;
+
+/* ***************************************************** ******************************************** ******************************************* */
+Function Get_InvoiceShortDtl(Parm_OuCode IN VARCHAR2,Parm_Year IN VARCHAR2, Parm_TranGroup IN VARCHAR2, Parm_InvNo IN VARCHAR2,
+                             Parm_BillCamp IN VARCHAR2 ,Parm_BillCode IN VARCHAR2) return varchar2 is
+  vTmp  VARCHAR2(500);
+Begin
+        Begin
+        select  to_char(odtshort_ttlunit)||'|'||odttrans_message  Txt2
+              Into vTmp
+            from om_transaction_dtl
+            where odtou_code     = Parm_OuCode
+            and odtyear          = Parm_Year
+            and odttrans_group   = Parm_TranGroup
+            and odttrans_no      = Parm_InvNo
+            and odtbill_campaign = Parm_BillCamp
+            and odtbill_code     = Parm_BillCode
+            --and odttrans_message is NULL
+            and rownum           = 1 ;
+            Exception when no_data_found Then vTmp := NULL;
+        End;
+         RETURN(vTmp);
+End Get_InvoiceShortDtl;
+/* ***************************************************** ******************************************** ******************************************* */
+Function Get_CondPremium_type  (Parm_OuCode    IN VARCHAR2,
+                                Parm_SaleCamp  IN VARCHAR2,
+                                Parm_Media     IN VARCHAR2,
+                                Parm_CondCode1 IN VARCHAR2,
+                                Parm_Opt       IN VARCHAR2 DEFAULt '0' ) return  VARCHAR2 Is
+ vTmp  VARCHAR2(20) ;
+ Begin
+    Begin
+     select  /*+FIRST_ROWS(10)*/
+             cohpremium_type
+       Into vTmp
+      FROM om_salescond_hdr
+      WHERE cohou_code         = Parm_OuCode
+         AND cohmedia_code     = Parm_Media
+         AND cohsales_campaign = Parm_SaleCamp
+         AND cohcondition_code = Parm_CondCode1;
+      Exception When no_data_found Then  vTmp := null;
+    End;
+    --
+    -- Get Description
+    --
+    If Parm_Opt !='0' and  vTmp is not null  Then
+       If vTmp ='A'  Then
+         Return('PM_ALLPAGE');
+       Elsif vTmp ='S'  Then
+         Return('PM_SUMPAGE');
+       End if;
+    End if;
+   return(vTmp);
+End Get_CondPremium_type ;
+/* ******************************************************** ******************************************** ************************************************ */
+Function Get_FSname(Parm_FsCode VARCHAR2 ,Parm_LinId VARCHAR2 DEFAULT 'TH') return VARCHAR2  IS
+    vTmpName  db_product_dtl.pdtfinished_ldesc%TYPE;
+   begin
+      Begin
+         select  decode(Parm_LinId,'TH', dx.pdtfinished_ldesc,pdtfinished_edesc) fs_name
+           into vTmpName
+         From db_product_dtl dx
+         where  dx.pdtfinished_code = Parm_FsCode;
+         Exception When no_data_found Then  vTmpName:= null;
+                   When Too_many_Rows Then  vTmpName:= null;
+      End;
+     return(vTmpName);
+   End Get_fsname;
+/* ******************************************************** ******************************************** ************************************************ */
+Function Get_BillName(Parm_OuCode  VARCHAR2 ,Parm_BillCamp  VARCHAR2 ,Parm_BillCode VARCHAR2 ) RETURN  VARCHAR2 IS
+     vTmpName     om_billing_hdr.bilbill_name%type;
+begin
+   Begin
+     Select  bilbill_name
+      Into vTmpName
+     From  om_billing_hdr Bh
+      Where  Bh.bilou_code = Parm_OuCode
+        and bilcampaign    = Parm_BillCamp
+        and bilbill_code   = Parm_BillCode;
+           Exception When no_data_found Then  vTmpName:= null;
+                     When Too_many_Rows Then  vTmpName:= null;
+    End;
+  return(vTmpName);
+End Get_BillName;
+/* ******************************************************** ******************************************** ************************************************ */
+Function Verified_UserId(Parm_UserId  IN VARCHAR2, Parm_Passwd  IN VARCHAR2) RETURN VARCHAR2 IS
+    v_Psswrd_encrypt    VARCHAR2(48);
+    vResult             VARCHAR2(10) :='FALSE';
+BEGIN
+            IF Parm_UserId IS NOT NULL AND Parm_Passwd IS NOT NULL THEN
+
+                v_Psswrd_encrypt := PKGSU_CTYPTO.ENCRYPT_PWD(Parm_Passwd);
+
+                BEGIN
+                    SELECT  'TRUE' ChkGFound
+                    INTO  vResult
+                    FROM  SU_USER
+                    WHERE   USRACCOUNT_ID  = Parm_UserId
+                    AND     USRACCOUNT_PWD = v_Psswrd_encrypt;
+                EXCEPTION
+                    WHEN NO_DATA_FOUND THEN  vResult :='FALSE';
+                    WHEN OTHERS        THEN  vResult :='FALSE'; -- and write to log data soon
+                END ;
+            ELSE
+                vResult :='FALSE' ;
+        END IF;
+   return(vResult);
+END Verified_UserId;
+/* ******************************************************** ******************************************** ************************************************ */
+Function Get_menu (Parm_UserId VARCHAR2)  return TabWebMenu  pipelined is
+
+ ColRefCur  SYS_REFCURSOR ;
+ TabOut     TabWebMenu ;
+
+  Begin
+   Open ColRefCur for
+        Select LEVEL menu_level,
+            CASE When upper('EN') IN ('E', 'EN', 'ENG') Then smu.smumenu_ename  Else  smu.smumenu_lname End menu_label,
+        decode(smu.smufunction_id ,Null,'su_mclose', 'su_mlink') icon_name,
+        smu.smumenu_id||decode(trim(smu.smufunction_id), null, null, '!-!'||smu.smufunction_id) url_link
+        from   su_menu smu
+        where exists (select 'X'  from   su_user_responsibility urs, su_responsibility_menu rsm where urs.ursaccount_id  = Parm_UserId
+          and urs.ursrespon_code = rsm.rsmrespon_code
+          and rsm.rsmmenu_id     = smu.smumenu_id)
+        connect by prior smu.smumenu_id = smu.smuparent_id
+        start with       smu.smuparent_id is null
+        order by smu.smumenu_id;
+
+    loop
+      fetch ColRefCur bulk collect into TabOut LIMIT  5000;
+       exit when TabOut.count = 0;
+        FOR  i in 1 .. TabOut.count Loop
+            pipe row (TabOut(i));
+        end Loop;
+    end loop;
+   Close ColRefCur;
+  Return ;
+END;
+/* ******************************************************** ******************************************** ************************************************ */
+
+Function Get_Member (Parm_RepCode VARCHAR2) return Varchar2 is
+    vTmp    VARCHAR2(500);
+Begin
+    Begin
+        select BW_STRAGG(mmdclub_code) Member
+          into vTmp
+          from (select mmdclub_code from db_member_dtl
+                where mmdou_code = '000'
+                  and exists (select seq_no from bw_def$sys t where t.parm_key = 'MEMBER_FOR_WEB' and t.vartxt1 = mmdclub_code)
+                  and mmdrep_code = Parm_RepCode
+                order by 1);
+        exception when no_data_found then vTmp := null;
+    End;
+
+    Return vTmp;
+END Get_Member;
+/* ******************************************************** ******************************************** ************************************************ */
+Function Get_Lasted_BPRPOINT (Parm_RepCode    VARCHAR2,
+                              Parm_PntBalfwd  OUT NOCOPY NUMBER,
+                              Parm_PntBal     OUT NOCOPY NUMBER,
+                              Parm_PntAdj     OUT NOCOPY NUMBER,
+                              Parm_PntUse     OUT NOCOPY NUMBER,
+                              Parm_PntExpire  OUT NOCOPY NUMBER)  return Varchar2 is
+
+ Cursor Rec (Parm_OuCode VARCHAR2, Parm_RepSeq  NUMBER ) Is
+       select  hx.ohdyear , hx.ohdtrans_group , hx.ohdtrans_no
+         from  om_transaction_hdr hx
+         where ohdou_code     = Parm_OuCode
+          and ohdrep_seq      = Parm_RepSeq
+          and  ohdtrans_group = '11'
+          order  by hx.ohdtrans_date desc;
+
+    Trec              Rec%Rowtype;
+    vTmp              VARCHAR2(10);
+    vOuCode           VARCHAR2(3) := '000';
+    nRepSeq           NUMBER;
+    vTmpYear          VARCHAR2(2);
+    vTran_group       VARCHAR2(5);
+    vTran_No          VARCHAR2(20);
+
+
+Begin
+      nRepSeq := pkgms_master.getrepseq_byrepcode( vOuCode , Parm_RepCode );
+
+    Open Rec (vOuCode, nRepSeq);
+      Fetch Rec Into Trec ;
+       If Rec%Found Then
+                    vTmp := 'TRUE';
+            vTmpYear     := Trec.ohdyear ;
+            vTran_group  := Trec.ohdtrans_group;
+            vTran_No     := Trec.ohdtrans_no;
+            --
+            --  Get Point Balance
+            --
+
+           pkgom_transaction.getsummary_bprpoint_byinvoice ( vOuCode, vTmpYear, vTran_group  ,vTran_No ,Parm_PntBalfwd, Parm_PntBal ,Parm_PntAdj ,Parm_PntUse ,Parm_PntExpire );
+
+            Begin
+            select expire_point_bpr
+             Into  Parm_PntExpire
+            from om_bpr_expire_camp
+             where ou_code  = vOuCode
+            and rep_seq     = nRepSeq
+            and expire_year = Trec.ohdyear;
+             EXCEPTION when No_data_found Then Parm_PntExpire := 0;
+            End;
+
+       Else
+            vTmp := 'FALSE';
+       End if;
+    Close Rec;
+  return (vTmp);
+End Get_Lasted_BPRPOINT;
+/* ******************************************************** ******************************************** ************************************************ */
+Function ChkBill_noSales(Parm_OuCode VARCHAR2,Parm_Camp  VARCHAR2, Parm_Bill VARCHAR2,Parm_Brand VARCHAR2) return varchar2 is
+
+   vTxt VARCHAR2(10);
+begin
+         begin
+            select 'EXPIRE' fx
+               Into vTxt
+           From bw_billnet_exception dx
+          where ou_code    = Parm_OuCode
+            and bill_camp   = Parm_Camp
+            and bill_code  = Parm_Bill
+            and bill_brand = Parm_Brand
+            and inactive_date <= trunc(sysdate)
+            and rownum    = 1;
+          Exception When no_data_found Then vTxt := null;
+       End;
+     return(vTxt);
+End ChkBill_noSales;
+/* ******************************************************** ******************************************** ************************************************ */
+Function Get_RepStatusBD (Parm_RepCode VARCHAR2)  Return  NUMBER is
+   -- Return  : 0 - Found record Status  I3 , BD
+   -- Return  : 1 - NotFound record Status  I3 , BD
+    nResult number ;
+
+  Begin
+      Begin
+         select 0 RecFound
+          Into nResult
+          from ms_representative
+           where repou_code = vGbl_OuCode
+             and reprep_code = Parm_RepCode
+             and ((reprep_status = 'I3' and trunc(sysdate) >= pkgbw_misc.getxdistrictshipdate(repou_code,pkgbw_misc.getcampaign(repou_code,pkgdb_desc.getcurrent_campaign,1),reploc_code) - 1)
+                 or repar_status ='BD' or reporder_status ='BL');
+         Exception When no_data_found Then nResult := 1;
+      End ;
+       return(nResult);
+  End ;
+/* ******************************************************** ******************************************** ************************************************ */
+Function GetSalesPlan_Record (Parm_OuCode    IN VARCHAR2,
+                           Parm_CampYear  IN VARCHAR2,
+                           Parm_Brand     IN VARCHAR2 default '1' ,
+                           Parm_Media     IN VARCHAR2 default '01' ) return PipRecSalesPlan  PIPELINED IS
+
+ColRefCur      SYS_REFCURSOR ;
+     TabOut    PipRecSalesPlan ;
+
+
+Begin
+     Begin
+        OPEN ColRefCur For
+             select /*+ first_rows(200) */
+                 sphou_code ou_code,
+                 sphbrand brand,
+                 sphmedia_code media_code,
+                 sphcat_campaign cate_camp,
+                 sphplan_campaign plan_camp,
+                 sphpage_seq page_seq,
+                 sphadv_campaign adv_camp,
+                 sphpage_code page_code,
+                 sphpage_sno page_sno,
+                 sphpage_eno page_eno,
+                 sphcon_code con_code,
+                 sphgroup_code group_code,
+                 sphspecial_discount  special_discount,
+                 sphpercent_cur percent_current,
+                 sphpercent_adv percent_adv,
+                 sphsalinf_status,
+                 sphnormal_discount normal_discount,
+                 sphdiscount_flag   discount_flag,
+                 sphplan_status plan_status,
+                 dt.spdfinished_code fs_code,
+                 dt.spdfinished_flag finished_flag ,
+                 dt.spdunlock flag_unlock,
+                 dt.spdsale_price,
+                 dt.spdsale_weight ,
+                 dt.spdupr,
+                 dt.spdvat_rate,
+                 dt.spdcur_unit,
+                 dt.spdcur_cost,
+                 dt.spdcur_ntb,
+                 dt.spdcur_gp_baht,
+                 dt.spdcur_gp_percent,
+                 dt.spdadv_unit adv_unit,
+                 dt.spdadv_ntb adv_ntb,
+                 dt.spdadv_cost adv_cost,
+                 dt.spdadv_gp_baht adv_gp_baht,
+                 dt.spdadv_gp_percent adv_gp_percent,
+                 dt.spdtot_unit tot_unit,
+                 dt.spdtot_ntb tot_ntb,
+                 dt.spdtot_cost tot_cost,
+                 dt.spdtot_gp_baht tot_gp_baht,
+                 dt.spdtot_gp_percent tot_gp_percent,
+                 dt.spdbill_code bill_code,
+                 dt.spdadv_post_status dadv_post_status,
+                 dt.spdfree_auto_status free_auto_status
+          FROM   mk_saleplan_hdr hd, mk_saleplan_dtl dt
+        Where  hd.sphou_code     = dt.spdou_code
+          and hd.sphbrand        = dt.spdbrand
+          and hd.sphmedia_code   = dt.spdmedia_code
+          and hd.sphcat_campaign = dt.spdcat_campaign
+          and hd.sphpage_seq     = dt.spdpage_seq
+          and hd.sphou_code      = Parm_OuCode
+          and hd.sphbrand        = Parm_Brand
+          and hd.sphmedia_code   like  Parm_Media||'%'
+          and hd.sphcat_campaign = Parm_CampYear;
+
+        End;
+              ---
+              --- Fetch data
+              ---
+               Loop
+                 fetch ColRefCur bulk collect into TabOut LIMIT 10000;
+                   exit when TabOut.count = 0;
+                    FOR i in 1 .. TabOut.count Loop
+                      pipe row (TabOut(i));
+                    end Loop;
+               end loop;
+              Close ColRefCur;
+           Return;
+  return;
+End GetSalesPlan_Record;
+/* ******************************************************** ******************************************** ************************************************ */
+Function GetCondCauseDtl  (Parm_OuCode    IN VARCHAR2,
+                           Parm_SaleCamp  IN VARCHAR2,
+                           Parm_Brand     IN VARCHAR2 default '1',
+                           Parm_Media     IN VARCHAR2 default '01',
+                           Parm_CondCode1 IN VARCHAR2 default NULL,
+                           Parm_CondCode2 IN VARCHAR2 default NULL) return PipCndDtlCause  PIPELINED IS
+
+ColRefCur      SYS_REFCURSOR ;
+     TabOut    PipCndDtlCause ;
+
+Begin
+     Begin
+        OPEN ColRefCur For
+          SELECT   /*+FIRST_ROWS(200) */
+                   codou_code ou_code,
+                   'CAUSE' SrcCond,
+                   codmedia_code media_code,
+                   codsales_campaign sales_campaign,
+                   codcondition_code condition_code,
+                   coheff_spageno from_page,
+                   coheff_epageno to_page,
+                   codpage_seq page_seq,
+                   codfinished_code finished_code,
+                   Get_FSname(codfinished_code) fs_name ,
+                   codbill_campaign bill_campaign,
+                   codbill_code bill_code,
+                   Get_BillName(codou_code,codbill_campaign,codbill_code)  Bill_name,
+                   codfree_status free_flag,
+                   decode(codfree_status,'1','Free','0','Normal') free_status,
+                   codfree_date free_date,
+                   codbill_type bill_type,
+                   codbill_factor bill_factor,
+                   coddiscount_flag discount_flag,
+                   decode(coddiscount_flag,'0','N/A', '1','Normal', '2','Special Discount','Unknow') discount_flagdesc,
+                   coddiscount_percent discount_percent,
+                   codsales_price sales_price,
+                   codnet_price net_price,
+                   coddummy_price dummy_price,
+                   codunlock_status unlock_flag,
+                   Decode(codunlock_status,'0','Unlock','Locked') unlock_status,
+                   codunlock_date unlock_date
+            FROM  om_salescond_hdr hd , om_salescond_dtl dt
+           Where hd.cohou_code        = Parm_OuCode
+             and hd.cohmedia_code     = Parm_Media
+             and hd.cohsales_campaign = Parm_SaleCamp
+             and hd.cohcondition_code between nvl(Parm_CondCode1,chr(20)) and nvl(Parm_CondCode2,chr(250))
+             and hd.cohou_code        = codou_code
+             and hd.cohmedia_code     = codmedia_code
+             and hd.cohsales_campaign = codsales_campaign
+             and hd.cohcondition_code = codcondition_code
+             and dt.codfree_status   !='1' ;
+            ---
+            --- Fetch data
+            ---
+            Loop
+              fetch ColRefCur bulk collect into TabOut LIMIT 10000;
+                exit when TabOut.count = 0;
+                 FOR i in 1 .. TabOut.count Loop
+                   pipe row (TabOut(i));
+                 end Loop;
+            end loop;
+              Close ColRefCur;
+      End;
+   Return;
+End GetCondCauseDtl;
+/* ******************************************************** ******************************************** ************************************************ */
+Function GetCondResultDtl  (Parm_OuCode    IN VARCHAR2,
+                            Parm_SaleCamp  IN VARCHAR2,
+                            Parm_Media     IN VARCHAR2 default '01',
+                            Parm_CondCode1 IN VARCHAR2 default NULL,
+                            Parm_CondCode2 IN VARCHAR2 default NULL) return PipCndDtlReasult  PIPELINED IS
+
+ColRefCur      SYS_REFCURSOR ;
+     TabOut    PipCndDtlReasult ;
+
+Begin
+    Begin
+       OPEN ColRefCur For
+            SELECT  /*+ FIRST_ROWS(200) */
+             hd.cohou_code   ou_code,
+             Get_CondPremium_type(hd.cohou_code, hd.cohsales_campaign  ,hd.cohmedia_code, hd.cohcondition_code,'1') SrcCond,
+             hd.cohmedia_code      cause_media,
+
+             hd.cohsales_campaign  cause_sales_camp,
+             hd.cohcondition_code  cause_condition ,
+             hd.cohpage_seq        cause_page_seq,
+             hd.cohmedia_code    result_media_code,
+             hd.cohsales_campaign result_sales_camp,
+             hd.cohcondition_code result_condition,
+             hd.cohpage_seq      result_page_seq,
+             1  condition_precedence,
+             hd.cohexcept_premium  except_premium,
+             hd.cohexcept_date    except_date,
+             hd.cohpair_status    pair_status,
+             null  pair_date,
+             null  big_group_code,
+             null  big_group_date,
+             null  big_group_cause,
+             null  big_group_result,
+             dt.codfinished_code finished_code,
+             PKGBW_WEBPACKAGE.Get_FSname( dt.codfinished_code ) fs_name ,
+             dt.codbill_campaign   bill_campaign,
+             dt.codbill_code bill_code,
+             Get_BillName( dt.codou_code , dt.codbill_campaign , dt.codbill_code ) Bill_name,
+             dt.codfree_status free_flag, trunc(dt.codfree_date ) free_date, dt.codbill_type , dt.codbill_factor,
+             hd.cohdiscount_flag coddiscount_flag,
+             hd.cohdiscount_percent coddiscount_percent,
+             dt.codsales_price  codsales_price  , dt.codnet_price codnet_price,
+             dt.coddummy_price coddummy_price  ,
+             hd.cohunlock_status codunlock_status,
+             Trunc(hd.cohunlock_date ) unlock_date
+           FROM  om_salescond_hdr hd , om_salescond_dtl dt
+           Where hd.cohou_code        = parm_OuCode
+             and hd.cohmedia_code     = parm_Media
+             and hd.cohsales_campaign = parm_SaleCamp
+             and hd.cohcondition_code between nvl(Parm_CondCode1,chr(20)) and nvl(Parm_CondCode2,chr(250))
+             and hd.cohou_code        = codou_code
+             and hd.cohmedia_code     = codmedia_code
+             and hd.cohsales_campaign = codsales_campaign
+             and hd.cohcondition_code = codcondition_code   ---- Case : All page conf
+           union
+         SELECT  /*+ FIRST_ROWS(200) */
+             Lix.colou_code ou_code,
+             Get_CondPremium_type(Lix.colou_code, Lix.colsales_campaign_result ,Lix.colmedia_code_result, Lix.colcondition_code_result,'1') SrcCond,
+             Lix.colmedia_code_cause      cause_media,
+             Lix.colsales_campaign_cause  cause_sales_camp,
+             Lix.colcondition_code_cause  cause_condition ,
+             Lix.colpage_seq_cause        cause_page_seq,
+             Lix.colmedia_code_result     result_media_code,
+             Lix.colsales_campaign_result result_sales_camp,
+             Lix.colcondition_code_result result_condition,
+             Lix.colpage_seq_result       result_page_seq,
+             Lix.colcondition_precedence  condition_precedence,
+             Lix.colexcept_premium except_premium,
+             Trunc(Lix.colexcept_date)    except_date,
+             Lix.colpair_status    pair_status,
+             Trunc(Lix.colpair_date)      pair_date,
+             Lix.colbig_group_code big_group_code,
+             Trunc(Lix.colbig_group_date) big_group_date,
+             Lix.colbig_group_cause  big_group_cause,
+             Lix.colbig_group_result big_group_result,
+             Rsx.codfinished_code finished_code,
+             PKGBW_WEBPACKAGE.Get_FSname( Rsx.codfinished_code) fs_name ,
+             Rsx.codbill_campaign bill_campaign,
+             Rsx.codbill_code bill_code,
+             PKGBW_WEBPACKAGE.Get_BillName( Rsx.codou_code, Rsx.codbill_campaign, Rsx.codbill_code) Bill_name,
+             Rsx.codfree_status free_flag, trunc(codfree_date) free_date,  Rsx.codbill_type,  Rsx.codbill_factor,
+             Rsx.coddiscount_flag, Rsx.coddiscount_percent,
+             Rsx.codsales_price  , Rsx.codnet_price,
+             Rsx.coddummy_price  ,
+             Rsx.codunlock_status,
+             Trunc( Rsx.codunlock_date) unlock_date
+           FROM   om_salescond_link Lix , om_salescond_dtl Rsx
+             WHERE Lix.colou_code               = Parm_OuCode
+               AND Lix.colmedia_code_cause      = Parm_Media
+               AND Lix.colsales_campaign_cause  = Parm_SaleCamp
+               and Lix.colcondition_code_cause between nvl(Parm_CondCode1,chr(20)) and nvl(Parm_CondCode2,chr(250))
+
+               and Lix.colou_code               = rsx.codou_code
+               and Lix.colmedia_code_result     = rsx.codmedia_code
+               and Lix.colsales_campaign_result = rsx.codsales_campaign
+               and Lix.colcondition_code_result = rsx.codcondition_code
+               and Lix.colpage_seq_result       = rsx.codpage_seq
+       Union
+       SELECT
+            rsx.codou_code  ou_code,
+             'NORMAL_RESULT' SrcCond,
+            rsx.codmedia_code     cause_media,
+            rsx.codsales_campaign  cause_sales_camp,
+            rsx.codcondition_code  cause_condition ,
+            rsx.codpage_seq        cause_page_seq,
+
+            rsx.codmedia_code      result_media_code,
+            rsx.codsales_campaign  result_sales_camp,
+            rsx.codcondition_code  result_condition,
+            rsx.codpage_seq        result_page_seq,
+            1  condition_precedence,
+            '0' except_premium,
+            null    except_date,
+            '0'    pair_status,
+            null      pair_date,
+            null big_group_code,
+            null big_group_date,
+            null  big_group_cause,
+            null big_group_result,
+            Rsx.codfinished_code finished_code,
+            Get_FSname( Rsx.codfinished_code) fs_name ,
+            Rsx.codbill_campaign bill_campaign,
+            Rsx.codbill_code bill_code,
+            Get_BillName( Rsx.codou_code, Rsx.codbill_campaign, Rsx.codbill_code) Bill_name,
+            Rsx.codfree_status free_flag, trunc(codfree_date) free_date,  Rsx.codbill_type,  Rsx.codbill_factor,
+            Rsx.coddiscount_flag, Rsx.coddiscount_percent,
+            Rsx.codsales_price  , Rsx.codnet_price,
+            Rsx.coddummy_price  ,
+            Rsx.codunlock_status,
+            Trunc( Rsx.codunlock_date) unlock_date
+         FROM   om_salescond_dtl Rsx
+           WHERE rsx.codou_code         = Parm_OuCode
+             and rsx.codmedia_code      = Parm_Media
+             and rsx.codsales_campaign  = Parm_SaleCamp
+             and rsx.codcondition_code  between nvl(Parm_CondCode1,chr(20)) and nvl(Parm_CondCode2,chr(250))
+             and rsx.codfree_status     = '1';-- 1-Free
+            ---
+            --- Fetch data
+            ---
+            Loop
+              fetch ColRefCur bulk collect into TabOut LIMIT 10000;
+                exit when TabOut.count = 0;
+                 FOR i in 1 .. TabOut.count Loop
+                   pipe row (TabOut(i));
+                 end Loop;
+            end loop;
+              Close ColRefCur;
+      End;
+    return;
+End GetCondResultDtl;
+/* ******************************************************** ******************************************** ************************************************ */
+Function get_invoice_unit( Parm_OuCode    VARCHAR2 ,
+                           Parm_Year      VARCHAR2 ,
+                           Parm_Grp       VARCHAR2 ,
+                           Parm_InvNo     VARCHAR2 ,
+                           Parm_BillCamp  VARCHAR2 ,
+                           Parm_Bill      VARCHAR2 ,
+                           Parm_Opt       VARCHAR2 default null ) RETURN NUMBER  IS
+
+-- ---------   ------  -------------------------------------------
+nInvQty      number;
+nShortQty    number;
+
+BEGIN
+     Begin
+       select /*+ FIRST_ROWS(10) */
+           sum(odttrans_unit) Inv_Pcs, sum(nvl(odtshort_ttlunit,0)) Short_Pcs
+          Into nInvQty, nShortQty
+        from om_transaction_dtl
+        where odtou_code      = Parm_OuCode
+         and odtyear          = Parm_Year
+         and odttrans_group   = Parm_Grp
+         and odttrans_no      = Parm_InvNo
+         and odtbill_campaign = Parm_BillCamp
+         and odtbill_code     = Parm_Bill ;
+        Exception When no_data_found Then  Begin nInvQty := 0 ; nShortQty := 0; End;
+     End;
+
+  If nvl(Parm_Opt,'1')='1' Then  --- Invoice
+    return(nInvQty);
+  Else
+    return(nShortQty);
+  End if;
+
+END get_invoice_unit;
+/* ******************************************************** ******************************************** ************************************************ */
+
+FUNCTION CHK_NON_VM_SHORT (vParam_ou_code       VARCHAR2,
+                            vParam_bill_camp    VARCHAR2,
+                            vParam_bill_code    VARCHAR2,
+                            nParam_order_qty    NUMBER) RETURN NUMBER IS
+    nTmp_ret            NUMBER;
+    vTmp_short_code     VARCHAR2(10);
+    nTmp_short_limit    NUMBER;
+BEGIN
+
+       BEGIN
+            select substr(t.shdshort_code,1,2),   t.short_limit
+            into   vTmp_short_code,   nTmp_short_limit
+            from (
+                    select shdfinished_code , shdfinished_seq, shdeff_sdate,         shdshort_seq,
+                           shdeffdtl_edate,  shdshort_code,
+                           nvl(shdshort_limit,999999999) short_limit
+                    from  om_short_dtl d
+                    where d.shdou_code          = vParam_ou_code
+                    and   d.shdbill_campaign    = vParam_bill_camp
+                    and   d.shdbill_code        = vParam_bill_code
+                    order by d.shdeff_sdate desc
+                 )t
+             where  rownum =1 ;
+            exception when no_data_found then
+                    begin
+                        vTmp_short_code         := null;
+                        nTmp_short_limit        := 999999999;
+                    end;
+
+       END;
+
+       IF (nvl(vTmp_short_code,'X') = '05') AND (nvl(nTmp_short_limit,0) = 0) THEN
+            nTmp_ret := NVL(nParam_order_qty,0);
+       ELSE
+            nTmp_ret := 0;
+       END IF;
+
+       RETURN(NVL(nTmp_ret,0));
+END;
+
+/* ******************************************************** ******************************************** ************************************************ */
+
+
+Function Get_NetVM_BooKStock (Parm_OuCode     Varchar2 ,
+                              Parm_SessionId  Varchar2 ,
+                              Parm_Event      Varchar2 ,
+                              Parm_LocCode    Varchar2 ,
+                              Parm_RepCode    Varchar2 ,
+                              Parm_BillCamp   Varchar2 , --- ??????????
+                              Parm_BillCode   Varchar2 ,--- ??????????
+                              Parm_OrdType    Varchar2 , --- ?????? Order
+                              Parm_Ref1       Varchar2 ,---??????  Reference 1
+                              Parm_Ref2       Varchar2 , ---??????  Reference 1
+                              Parm_OrdUnit    NUMBER ,  --- ????????
+                              Parm_BookQty    NUMBER ,
+                              Parm_VmFlag     OUT   VARCHAR2, -->'0' = Not Virtual, '1' = Virtual
+                              Parm_ErrCode    OUT   VARCHAR )  return  NUMBER  Is
+   nQtyBook         NUMBER ;
+   nTmp_chk         NUMBER ;
+   nTmp_ret         NUMBER;
+   nTmp_rep_seq     ms_representative.reprep_seq%TYPE;
+  Begin
+
+       BEGIN
+            SELECT m.reprep_seq
+            INTO   nTmp_rep_seq
+            FROM   ms_representative m
+            WHERE  m.repou_code     = Parm_OuCode
+            AND    m.reprep_code    = Parm_RepCode
+            AND    rownum           = 1;
+            EXCEPTION WHEN no_data_found THEN nTmp_rep_seq := null;
+       END;
+
+       nQtyBook := stf_vmget_booking(Parm_OuCode,
+                                     Parm_LocCode ,
+                                     Parm_BillCamp ,
+                                     Parm_BillCode ,
+                                     Parm_OrdUnit,
+                                     Parm_BookQty,
+                                     nTmp_rep_seq,
+                                     Parm_Ref1,     -->IN Prog_ID
+                                     Parm_Event ,
+                                     Parm_VmFlag,   -->OUT
+                                     Parm_ErrCode,
+                                     Parm_OrdType);
+
+       nTmp_chk := instr(Parm_ErrCode,'None Virtual code');
+       IF (nvl(nTmp_chk,0) <> 0) THEN
+            nTmp_ret := CHK_NON_VM_SHORT (Parm_OuCode      ,
+                                          Parm_BillCamp    ,
+                                          Parm_BillCode    ,
+                                          Parm_OrdUnit     );
+       ELSE
+            nTmp_ret := nQtyBook;
+       END IF;
+
+     Return(nTmp_ret);
+  End ;
+
+/* ******************************************************** ******************************************** ************************************************ */
+Function Get_Billcode_VM (Parm_OuCode     Varchar2 ,
+                            Parm_BillCamp   Varchar2 , --- ??????????
+                              Parm_BillCode   Varchar2 --- ??????????
+                               )  return  NUMBER
+ Is
+    nTmp_VMFlag     Varchar2(10);
+   nTmp_ret         NUMBER;
+
+  Begin
+
+     nTmp_VMFlag :=  pkgbw_virtual_stock.Get_Bill_Virtual( Parm_OuCode,Parm_BillCamp , Parm_BillCode) ;
+
+     IF (nvl(nTmp_VMFlag,'X') = 'TRUE') THEN
+        nTmp_ret := 1;
+     else
+        nTmp_ret := 0;
+     end if;
+
+     Return(nTmp_ret);
+  End ;
+/* ******************************************************** ******************************************** ************************************************ */
+Function TOS_BackupOrd_Generate (Parm_EntryDate DATE ,Parm_Errmsg VARCHAR2, Parm_Source VARCHAR2  default 'TOS' ) RETURN  NUMBER  is
+   --
+   -- Parm_Source : = TOS- TOS Backup , MOB- Order via Smart phone
+   --
+   -- Return      : 1 - Success  , 0 - Witherror
+   --
+ Errmsg_Txt  VARCHAR2(200);
+
+Begin
+
+    if Parm_Source = 'TOS' then
+
+     TOS_OrderBackup('000','%','TOS_BACKUP', Errmsg_Txt);
+
+     else
+
+     TOS_OrderBackup('000','%','MOB', Errmsg_Txt);
+
+     end if;
+
+     If Errmsg_Txt is NULL tHEN
+       return(1);
+     Else
+        return(0);
+     End if;
+End TOS_BackupOrd_Generate;
+
+/* ******************************************************** ******************************************** ************************************************ */
+PROCEDURE TOS_OrderBackup ( Parm_Oucode  VARCHAR2, Parm_RepCode VARCHAR2 DEFAULT '%' , Parm_ProgId VARCHAR2 ,Parm_ErrMsg OUT VARCHAR2 )   is
+
+Cursor RecHd (Parm_Chanel VARCHAR2) IS
+SELECT  distinct ou_code bihou_code,
+         sales_camp bihsales_campaign,
+         rep_seq  bihrep_seq,
+         rep_code bihrep_code,
+         order_camp  bihorder_campaign,
+         ord_chanel  bihorder_by,
+         'x' bihord_flag_status,
+         nsm      bihnsm,
+         divcode  bihdiv,
+         loc_code bihloc_code,
+         mailgroup bihmailgroup,
+         '0'   bihwork_status,
+         '01'  bihorder_status,
+         0 bihrein_status,
+         0 bihnew_faris_status,
+         0 bihvip_status,
+         0 bihrequest_tf_district,
+         null bihvat_rate,
+         rep_seq  bihupd_rep_seq,
+         rep_code bihupd_rep_code,
+         1 bihno_of_edit,
+         Trunc(sysdate) bihopc_date,
+         cre_by   bihcre_by,
+         cre_date   bihcre_date,
+         Parm_ProgId bihprog_id,
+         cre_by    bihupd_by,
+         cre_date  bihupd_date
+  FROM   om_order_interface Ix , bev$_mailplan Mx
+where Mx.mplou_code  = ix.ou_code
+ and  Mx.loc_code    = substr(rep_code,1,4)
+ and  Mx.mplcampaign = order_camp
+ and rep_code like  Parm_RepCode
+ and import_status ='1'   --- 1- Prepare
+ and  ord_chanel   = Parm_Chanel ;
+
+     rOrdTmp        om_order_hdr_tmp%ROWTYPE;
+     rTRep          ms_representative%ROWTYPE;
+     vCurr_Camp       VARCHAR2(6);
+     vDistrictCamp    VARCHAR2(6);
+     v_start_camp      VARCHAR2(6);
+     v_end_camp        VARCHAR2(6);
+     dWorkIngDate     date;
+     dBilldate        date;
+     dShipDate        date;
+     dOrder_date      date;
+     nSession_id      NUMBER;
+     ErrMsg           VARCHAR2(300);
+     vTmpChanel       VARCHAR2(5);
+     vTmp_OrdType         VARCHAR2(1);
+  /* *************************************************************************************************** */
+    Function get_repcode(Parm_OuCode  VARCHAR2, Parm_RepSeq NUMBER  ) return  ms_representative%ROWTYPE is
+        rTmp1 ms_representative%ROWTYPE;
+     Begin
+         Begin
+             select mx.*
+               Into rTmp1
+             From ms_representative Mx
+             where  repou_code  = Parm_OuCode
+               and reprep_seq   = Parm_RepSeq;
+             Exception when no_data_found Then  rTmp1 := null;
+         End;
+        return(rTmp1);
+     End get_repcode ;
+  /* *************************************************************************************************** */
+    Function get_bill_seq (Parm_OuCode     VARCHAR2 ,
+                           Parm_RepSeq     om_order_hdr.bihrep_seq%type,
+                           Parm_SalesCamp  om_order_hdr.bihsales_campaign%type)  return number is
+        nSeq    om_order_hdr.bihbill_seq%type;
+            begin
+                 begin
+                    select max(bihbill_seq)
+                    into     nSeq
+                    from   om_order_hdr
+                    where  bihou_code          = Parm_OuCode
+                    and      bihrep_seq        = Parm_RepSeq
+                    and      bihsales_campaign = Parm_SalesCamp;
+                 exception when no_data_found then  nSeq := 0;
+                 when others then nSeq := 0;
+                 end;
+                 return (nvl(nSeq,0)+1);
+            end  get_bill_seq;
+  /* *************************************************************************************************** */
+    Function  Get_Defult_DeliverType return  varchar2 is
+        vTmp  su_param_dtl.padcha2%type;
+    Begin
+      Begin
+         select padcha2 del_type
+           Into vTmp
+          from   su_param_dtl
+         where padparam_id = 399
+           and padentry_code = '23';
+       Exception  when no_data_found then vtmp :='0' ;
+      End;
+        return(vTmp);
+    End Get_Defult_DeliverType ;
+  /* *************************************************************************************************** */
+    Function  Get_District_Type (Parm_OuCode VARCHAR2, Parm_LocCode VARCHAR2  ) return varchar2 is
+       vTmp    db_sales_location.dstdistrict_type%type;
+    Begin
+       begin
+        select dstdistrict_type
+          Into vTmp
+         from  DB_SALES_LOCATION
+        where dstou_code =  Parm_OuCode
+          and dstloc_code = Parm_LocCode;
+         Exception When no_data_found Then vTmp :='01';
+       End;
+    return (vTmp);
+    End  Get_District_Type ;
+  /* *************************************************************************************************** */
+  /* *************************************************************************************************** */
+   Procedure  Gen_OrderDetail (Parm_SessionId  NUMBER , Parm_OuCode   VARCHAR2, Parm_SalesCamp VARCHAR2 ,
+                               Parm_RepSeq     NUMBER , Parm_BillSeq  NUMBER, Parm_ProgId  VARCHAR2,
+                               Parm_StartCamp  VARCHAR2, Parm_EndCamp VARCHAR2,Parm_Chanel  VARCHAR2,
+                               Parm_Error  OUT  VARCHAR2 )  is
+
+   Cursor RexDtl is
+     Select ou_code, rep_seq, rep_code,  netorder_seq Line_seq, bill_camp, bill_code, bill_unit  ,cre_by , cre_date
+      From  om_order_interface Ix , bev$_mailplan Mx
+       Where ou_code = Parm_OuCode
+         and rep_seq = Parm_RepSeq
+         AND Mx.mplou_code   = ix.ou_code
+         and  Mx.loc_code    = substr(rep_code,1,4)
+         and  Mx.mplcampaign = order_camp
+         and import_status   = '1'   --- 1- Prepare
+         and  ord_chanel     = Parm_Chanel ;
+
+        rDtlx   om_order_dtl_tmp%rowtype;
+
+        v_bilcampaign     om_billing_hdr.bilcampaign%TYPE;
+        v_brand           om_billing_hdr.bilbill_brand%TYPE;
+        v_price           om_billing_hdr.bilbill_salesprice%TYPE;
+        v_cat_camp        om_billing_hdr.bilcatelog_campaign%TYPE;
+        v_disc_val        om_billing_hdr.bildiscount_value%TYPE;
+        v_disc_type       om_billing_hdr.bildiscount_type%TYPE;
+        v_bill_type       om_billing_hdr.bilbill_type%TYPE;
+        v_bilsource       om_billing_hdr.bilsource%TYPE;
+        v_max_selling     om_billing_hdr.bilmax_selling%TYPE;
+        v_min_selling     om_billing_hdr.bilmin_selling%TYPE;
+        v_max_sell_type   om_billing_hdr.bilmax_selling_type%TYPE ;
+        v_min_sell_type   om_billing_hdr.bilmin_selling_type%TYPE ;
+        v_ord_date        date;
+        v_vip             VARCHAR2(300);
+        v_error           VARCHAR2(300);
+         nTotalAmtBefDisc  NUMBER ;
+         nDiscAmount       NUMBER ;
+         nTotalAmtAftdisc  NUMBER ;
+
+    Begin
+       For Trex In RexDtl Loop
+
+       -- -----------------------------------------------------------------------------------------------
+       --
+       -- -----------------------------------------------------------------------------------------------
+           pkgom_billing.CheckBilling_Code_ERROR( Trex.ou_code, Trex.Bill_camp, Parm_StartCamp , Parm_EndCamp , Trex.bill_code ,'DP',
+                                        v_bilcampaign  , v_brand    , v_price      , v_cat_camp  , v_disc_val    , v_disc_type,
+                                        v_bill_type    , v_bilsource, v_max_selling, v_min_selling,v_max_sell_type,v_min_sell_type ,
+                                        v_vip , v_error , Trex.rep_code , v_ord_date , NULL );
+       -- -----------------------------------------------------------------------------------------------
+
+            rDtlx.bidsession_id     := Parm_SessionId;
+            rDtlx.bidou_code        := Parm_OuCode ;
+            rDtlx.bidsales_campaign := Parm_SalesCamp;
+            rDtlx.bidrep_seq        := Trex.rep_seq;
+            rDtlx.bidbill_seq       := Parm_BillSeq ;
+            rDtlx.bidline_seq       := Trex.Line_seq;
+            rDtlx.bidorder_by_seq   := Trex.Line_seq;
+            rDtlx.bidcat_campaign   := v_cat_camp;
+            rDtlx.bidbill_campaign  := v_bilcampaign;
+            rDtlx.bidbill_code      := Trex.bill_code;
+            rDtlx.bidbrand_code     := v_brand;
+            rDtlx.bidbill_brand     := v_brand;
+            rDtlx.bidbill_unit      := Trex.bill_unit ;
+            rDtlx.bidbill_price     := v_price;
+            rDtlx.biddiscount_type  := v_disc_type;
+            rDtlx.biddiscs_perc     := v_disc_val;
+            rDtlx.biddiscs_amount   :=  nvl(Trex.bill_unit,0) * ( nvl(v_price,0) * (v_disc_val/100) );
+            rDtlx.bidbill_netsales  := ((Trex.bill_unit * v_price) - nvl(rDtlx.biddiscs_amount,0));
+            rDtlx.bidcre_by         := Trex.cre_by;
+            rDtlx.bidcre_date       := Trex.cre_date;
+            rDtlx.bidprog_id        := Parm_ProgId;
+
+            nTotalAmtBefDisc  :=  nvl(nTotalAmtBefDisc,0) + (Trex.bill_unit * v_price);
+            nDiscAmount       :=  nvl(nDiscAmount,0) + nvl(rDtlx.biddiscs_amount,0);
+            nTotalAmtAftdisc  :=  nvl(nTotalAmtAftdisc,0)+ nvl(rDtlx.bidbill_netsales,0);
+
+            begin
+                insert into OM_ORDER_DTL_TMP Values rDtlx;
+            End;
+
+        End Loop ;
+        --
+        --  Update Amount HDR
+            Begin
+               UPDATE OM_ORDER_HDR_TMP
+                  SET  bihttl_amount_befdisc = nTotalAmtBefDisc ,
+                       bihdisc_amount        = nDiscAmount,
+                       bihttl_amount_aftdisc = nTotalAmtAftdisc
+              Where bihsession_id      = Parm_SessionId
+                and bihou_code         = Parm_OuCode
+                and bihsales_campaign  = Parm_SalesCamp
+                and bihrep_seq         = Parm_RepSeq
+                and bihbill_seq        = Parm_BillSeq ;
+            End;
+
+    End Gen_OrderDetail;
+  /* *************************************************************************************************** */
+   Procedure Sprit_Order(Parm_SessionId  NUMBER, Parm_OuCOde VARCHAR2, Parm_CurrCamp VARCHAR2 ) is
+          Cursor Cur_Order IS
+            SELECT bihsales_campaign,
+                   bihrep_seq,
+                   bihbill_seq ,
+                   bihrep_code,
+                   trunc(bihorder_date) order_date,
+                   pkgom_chkcondition.chkvalidate_districtcampaign(Parm_OuCOde,Parm_CurrCamp ,substr(bihrep_code,1,4)) dist_camp
+            FROM  OM_ORDER_HDR_TMP
+            WHERE  bihsession_id = Parm_SessionId;
+
+            v_result  varchar2(200) := null;
+            v_om_bill_seq varchar2(200);
+
+      BeGin
+          For Trsx In Cur_Order Loop
+                  v_result := null;
+                pkgom_billing.Split_Order_Campaign (Parm_SessionId ,Parm_OuCode ,Trsx.bihrep_seq , Trsx.bihsales_campaign,Trsx.bihbill_seq,Trsx.bihsales_campaign,
+                                                    Trsx.dist_camp , Trsx.order_date,
+                                                    '0', -- status 0 = New ,1 = Maintence
+                                                    v_om_bill_seq , v_result );
+
+            If v_result is null Then
+              commit;
+            Else
+              rollback;
+            End if;
+          End Loop;
+      End  Sprit_Order;
+
+  /* *************************************************************************************************** */
+ BEGIN ---  Main()
+
+     nSession_id := Pkgbw_misc.getsession ;
+    vCurr_Camp   :=  pkgdb_desc.getcurrent_campaign ;
+    dWorkIngDate :=  pkgdb_desc.getcurrent_camp_date;
+   ---
+   If  Parm_ProgId = 'TOS_BACKUP' Then
+       vTmpChanel   :='8';
+    Else
+        vTmpChanel :='10';
+   End if;
+
+   For rTrechd IN RecHd (vTmpChanel) Loop
+                rTRep := get_repcode (rTrechd.bihou_code,rTrechd.bihrep_seq);
+        vDistrictCamp := pkgom_chkcondition.chkvalidate_districtcampaign(rTrechd.bihou_code , vCurr_Camp,rTRep.reploc_code);
+
+      Begin
+        pkgom_chkcondition.chkValidate_EFFBillCampaign ( Parm_OuCode , vDistrictCamp  ,v_start_camp, v_end_camp );
+         Exception when others then  ErrMsg := substr('chkValidate_EFFBill :'||sqlerrm,1,200);
+      END;
+
+      If ErrMsg Is NULL Then
+
+          v_start_camp := substr(v_start_camp,5,2)||substr(v_start_camp,1,4);
+          v_end_camp   := substr(v_end_camp,5,2)||substr(v_end_camp,1,4);
+
+
+        pkgom_billing.GetBilling_Plan_Normal( rTrechd.bihou_code , vDistrictCamp , NULL,  rTRep.reploc_code , dWorkIngDate  ,'DP',
+                                              rTrechd.bihmailgroup ,dBilldate , dShipdate, dOrder_date,
+                                              vTmp_OrdType  ,rTrechd.bihord_flag_status );
+
+        rOrdTmp.bihsession_id      :=  nSession_id;
+        rOrdTmp.bihou_code         :=  rTrechd.bihou_code    ;
+        rOrdTmp.bihsales_campaign  :=  rTrechd.bihsales_campaign;
+        rOrdTmp.bihrep_seq         :=  rTrechd.bihrep_seq ;
+        rOrdTmp.bihbill_seq        :=  Get_bill_seq ( rTrechd.bihou_code ,rTrechd.bihrep_seq ,rTrechd.bihsales_campaign);
+        rOrdTmp.bihrep_code        :=  rTrechd.bihrep_code ;
+        rOrdTmp.bihrep_name        :=  rTRep.reprep_name ;
+        rOrdTmp.bihorder_campaign  :=  rTrechd.bihorder_campaign;
+        rOrdTmp.bihorder_date      :=  dOrder_date ;
+        rOrdTmp.bihbill_date       :=  dBilldate ;
+        rOrdTmp.bihship_date       :=  dShipdate;
+
+        If vTmpChanel ='8' Then --- TOS Backup
+            rOrdTmp.bihsource          :=  'DP';
+        Else
+            rOrdTmp.bihsource          :=  'NET';
+        End if;
+
+        rOrdTmp.bihorder_by        :=  rTrechd.bihorder_by; ---: 5-DSM ORDER ,7-BW ORDER, 8-TOS , 10-Mobile
+        rOrdTmp.bihord_flag_status :=  rTrechd.bihord_flag_status;
+        -- Check Gold Club
+        IF pkgom_master.chkmsl_gc1(rTrechd.bihou_code  , 'GC1', rTrechd.bihrep_code) Then
+             rOrdTmp.bihord_type   := '1';
+             rOrdTmp.bihdel_type   := '6';
+         Else
+            rOrdTmp.bihord_type    :=  vTmp_OrdType;
+            rOrdTmp.bihdel_type    :=  Get_Defult_DeliverType ;
+         End if;
+        rOrdTmp.bihnsm             :=  rTrechd.bihnsm;
+        rOrdTmp.bihdiv             :=  rTrechd.bihdiv;
+        rOrdTmp.bihloc_code        :=  rTRep.reploc_code ;
+        rOrdTmp.bihdistrict_type   :=  Get_District_Type(rTrechd.bihou_code  , rTRep.reploc_code );
+        rOrdTmp.bihloa             :=  rTRep.reploa ;
+        rOrdTmp.bihrep_type        :=  rTRep.reprep_type ;
+        rOrdTmp.bihrep_status      :=  rTRep.reprep_status ;
+        rOrdTmp.bihar_status       :=  rTRep.repar_status ;
+        rOrdTmp.bihmailgroup       :=  rTrechd.bihmailgroup;
+        rOrdTmp.bihcredit_limit    :=  null;
+        rOrdTmp.bihcredit_limit_value  :=  rTRep.reporder_limit ;
+        rOrdTmp.bihwork_status         :=  rTrechd.bihwork_status;
+        rOrdTmp.bihorder_status        :=  rTrechd.bihorder_status;
+        rOrdTmp.bihrein_status         :=  rTrechd.bihrein_status;
+        rOrdTmp.bihnew_faris_status    :=  rTrechd.bihnew_faris_status;
+        rOrdTmp.bihvip_status          :=  rTrechd.bihvip_status;
+        rOrdTmp.bihrequest_tf_district :=  rTrechd.bihrequest_tf_district;
+        rOrdTmp.bihupd_rep_seq         :=  rTrechd.bihupd_rep_seq;
+        rOrdTmp.bihupd_rep_code        :=  rTrechd.bihupd_rep_code ;
+        rOrdTmp.bihno_of_edit          :=  rTrechd.bihno_of_edit;
+        rOrdTmp.bihopc_date            :=  rTrechd. bihopc_date;
+        rOrdTmp.bihcre_by              :=  rTrechd.bihcre_by;
+        rOrdTmp.bihcre_date            :=  rTrechd.bihcre_date ;
+        rOrdTmp.bihprog_id             :=  rTrechd.bihprog_id ;
+        rOrdTmp.bihupd_by              :=  rTrechd.bihupd_by ;
+        rOrdTmp.bihupd_date            :=  rTrechd.bihupd_date;
+
+        Begin
+        ---   ZMA1_OM_ORDER_HDR
+          Insert Into  OM_ORDER_HDR_TMP  Values  rOrdTmp;
+        End;
+        --
+        -- Create Order detail Tempory
+        --
+         Gen_OrderDetail (rOrdTmp.bihsession_id , rOrdTmp.bihou_code , rOrdTmp.bihsales_campaign , rOrdTmp.bihrep_seq ,rOrdTmp.bihbill_seq, rOrdTmp.bihprog_id,
+                          v_start_camp,v_end_camp, vTmpChanel ,ErrMsg) ;
+        --
+        -- Update Post to OM_ORDER_HDR
+        --
+        Begin
+           Update om_order_interface
+               set import_status = '2',
+                   post_time     = sysdate
+          where rep_seq = rOrdTmp.bihrep_seq
+            and import_status ='1' ;
+        End;
+     End if;
+   End loop;
+   --
+   -- Sprit order late , current , advance
+   --
+     Sprit_Order(nSession_id , Parm_Oucode , vCurr_Camp );
+   --
+   --Exception When  OTHERS Then  Parm_ErrMsg := 'POST Record with Error';
+ End;
+ /* ******************************************************** ******************************************** ************************************************ */
+END;
+/

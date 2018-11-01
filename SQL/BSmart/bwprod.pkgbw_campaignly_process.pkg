@@ -1,0 +1,78 @@
+CREATE OR REPLACE PACKAGE pkgbw_campaignly_process IS
+/******************************************************************************
+   NAME:       pkgbw_campaignly_process
+   PURPOSE:
+
+   REVISIONS:
+   Ver        Date        Author           Description
+   ---------  ----------  ---------------  ------------------------------------
+   1.0        03/04/2014      Perapong       1. Created this package.
+******************************************************************************/
+
+Procedure School_Project_Process (P_Campaign VARCHAR2);
+Procedure Refresh_MView_Return08;
+
+Procedure MainProcess (Parm_OuCode VARCHAR2);
+
+END pkgbw_campaignly_process;
+/
+
+CREATE OR REPLACE PACKAGE BODY pkgbw_campaignly_process IS
+
+Procedure School_Project_Process (P_Campaign VARCHAR2) is 
+Begin
+    insert into bw_sch_salereport   
+    select repou_code ou_code      
+         , a.reprep_seq rep_seq        
+         , a.reprep_code rep_code      
+         , pkgbw_misc.getxnsmcode(reploc_code) nsm      
+         , pkgbw_misc.getxdivcode(reploc_code) div        
+         , reploc_code loc_code      
+         , h.ohdord_campaign campaign      
+         , sum(h.ohdnet_amount_aftdisc) ttlsale from ms_representative a        
+         , om_transaction_hdr h   
+    where a.repou_code = '000'     
+      and a.reprep_type = '05'     
+      and a.reploc_code not in (select dist_code from bev$_skipdist)     
+      and a.reploc_code <> '0001'     
+      and a.repou_code = h.ohdou_code     
+      and a.reprep_seq = h.ohdrep_seq     
+      and h.ohdcancel_date is null     
+      and h.ohdord_campaign = P_Campaign 
+    group by repou_code, a.reprep_seq, a.reprep_code, pkgbw_misc.getxnsmcode(reploc_code) , pkgbw_misc.getxdivcode(reploc_code), reploc_code, h.ohdord_campaign;
+End;
+
+Procedure Refresh_MView_Return08 is 
+Begin
+    begin
+        DBMS_SNAPSHOT.REFRESH( 'BEMV_RETURN_08' ); 
+    end;
+
+    begin
+        DBMS_SNAPSHOT.REFRESH( 'BEMV_RETURN_08_BILLCODE' ); 
+    end;
+
+    begin
+        DBMS_SNAPSHOT.REFRESH( 'BEMV_RETURN_08_FSCODE' ); 
+    end;
+End;
+
+Procedure  MainProcess (Parm_OuCode VARCHAR2) is
+
+    Prv_Campaign   VARCHAR2(6);
+    Cur_Campaign   VARCHAR2(6);
+
+Begin
+    Cur_Campaign := pkgdb_desc.getcurrent_campaign;
+    Prv_Campaign := pkgdb_desc.getprev_campaign(Parm_OuCode,Cur_Campaign,1);
+    
+    
+    School_Project_Process(Prv_Campaign);
+    COMMIT; 
+    
+    Refresh_MView_Return08();
+
+End MainProcess;
+
+END;
+/

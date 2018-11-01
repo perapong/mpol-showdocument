@@ -1,0 +1,1227 @@
+CREATE OR REPLACE PACKAGE PKGIV_MISTINE_STATEMENT AS
+    d_start_date    DATE    := ADD_MONTHS(LAST_DAY(TRUNC(SYSDATE))+1, -1); -- Start date of month
+    d_end_date      DATE    := LAST_DAY(TRUNC(SYSDATE)); -- End date of month
+    d_bf_date           DATE    := d_start_date - 1; -- End date of last month
+    v_ou_code           iv_bf_cg_statement.bfcgou_code%TYPE;
+    v_rcv_type      iv_trans_hdr.ithtrans_type_code%TYPE;
+    v_rcv_revers    iv_trans_hdr.ithtrans_type_code%TYPE;
+    v_ret_type      iv_trans_hdr.ithtrans_type_code%TYPE;
+    v_ret_revers    iv_trans_hdr.ithtrans_type_code%TYPE;
+    v_adj_type      iv_trans_hdr.ithtrans_type_code%TYPE;
+    v_rcvrev_sub    iv_trans_hdr.ithtrans_sub_type%TYPE; -- Receive Reverse Sub Type for return to supplier
+    v_start_supp    pp_supplier.sprsup_code%TYPE    := '!';
+    v_end_supp      pp_supplier.sprsup_code%TYPE    := CHR(250);
+    v_start_fs      db_product_dtl.pdtfinished_code%TYPE    := '!';
+    v_end_fs            db_product_dtl.pdtfinished_code%TYPE    := CHR(250);
+    v_prd_type      db_product.prdproduct_type%TYPE;
+    v_trans_plus    VARCHAR2(200);
+    v_trans_minus   VARCHAR2(200);
+
+    FUNCTION FNCGET_RETURN_COST(piv_ou_code         VARCHAR2,
+                                                            pid_as_of_date  DATE,
+                              piv_fs_code           VARCHAR2)
+                                                            RETURN NUMBER;
+--------------------------------------------------------------------------------
+    FUNCTION FNCGET_SEQ_IV_BF_CG_STATEMENT( piv_fs_code VARCHAR2)
+                                                                                    RETURN NUMBER;
+--------------------------------------------------------------------------------
+    FUNCTION FNCGET_TOTAL_AMOUNT_BY_SUPP(   piv_ou_code         VARCHAR2,
+                                                                                piv_supp_code       VARCHAR2,
+                                                                                piv_vat_type        VARCHAR2,
+                                                                                piv_adj_period  VARCHAR2,
+                                                                                piv_approve_id  VARCHAR2    DEFAULT NULL)
+                                                                                RETURN NUMBER;
+--------------------------------------------------------------------------------
+    FUNCTION FNCGET_UNIT_COST(piv_ou_code   VARCHAR2,
+                                                        piv_fs_code VARCHAR2)
+                                                        RETURN NUMBER;
+--------------------------------------------------------------------------------
+    FUNCTION FNCGET_VAT_FLAG(   piv_entry_code  VARCHAR2)
+                                                        RETURN VARCHAR2;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCCALC_FRIDAY_CF(piv_ou_code VARCHAR2,
+                                                            pid_st_date DATE,
+                              pid_en_date   DATE,
+                              piv_st_supp   VARCHAR2,
+                              piv_en_supp   VARCHAR2,
+                              piv_st_fs     VARCHAR2    DEFAULT NULL,
+                              piv_en_fs     VARCHAR2    DEFAULT NULL);
+--------------------------------------------------------------------------------
+    PROCEDURE PRCGET_ADJ_TYPE;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCGET_PARAMETER( pod_st_date         OUT DATE,
+                                                            pod_en_date         OUT DATE,
+                                                            pov_prd_type        OUT VARCHAR2,
+                                                            pov_rcv_type        OUT VARCHAR2,
+                                                            pov_rcv_revers  OUT VARCHAR2,
+                                                            pov_ret_type        OUT VARCHAR2,
+                                                            pov_ret_revers  OUT VARCHAR2,
+                                                            pov_adj_type        OUT VARCHAR2,
+                                                            pov_rcvrev_sub  OUT VARCHAR2,
+                                                            pov_tran_plus       OUT VARCHAR2,
+                                                            pov_tran_minus  OUT VARCHAR2);
+--------------------------------------------------------------------------------
+    PROCEDURE PRCGET_PRODUCT_TYPE;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCGET_RCV_REV_TYPE;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCGET_RET_REV_TYPE;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCGET_RCV_RET_SALES_QTY;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCGET_TRANS_NATURE;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCPREPARE_FRIDAY_BF;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCPREPARE_FRIDAY_RCV;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCPREPARE_FRIDAY_RET_SALES;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCSETUP_PARAMETER(   piv_ou_code VARCHAR2,
+                                                                pid_st_date DATE,
+                                                                pid_en_date DATE,
+                                                                pid_bf_date DATE,
+                                                                piv_st_supp VARCHAR2,
+                                                                piv_en_supp VARCHAR2,
+                                                                piv_st_fs       VARCHAR2    DEFAULT NULL,
+                                                                piv_en_fs       VARCHAR2    DEFAULT NULL);
+--------------------------------------------------------------------------------
+    PROCEDURE PRCUPD_TMP_IV_BF_CG(pir_tmp_bf    tmp_iv_bf_cg_statement%ROWTYPE,
+                                                                piv_mode        VARCHAR2    DEFAULT 'N');
+--------------------------------------------------------------------------------
+END PKGIV_MISTINE_STATEMENT;
+/
+CREATE OR REPLACE PACKAGE BODY PKGIV_MISTINE_STATEMENT AS
+/****************************************************************************************
+   NAME:      PKGIV_MISTINE_STATEMENT
+   PURPOSE:   Calculate C/F for Friday Statement
+
+   REVISIONS:
+   Ver        Date        Author           Description
+   ---------  ----------  -------------  ------------------------------------------------
+   1.0        13/05/2010  Wisan W.       1. Created the package.
+   1.1        16/06/2010  Wisan W.       1. Fix following issues.
+                                            -PRCPREPARE_FRIDAY_RCV work fail
+                                            -Fix Logic to retrieve transaction
+   1.2        22/06/2010  Wisan W.       1. Add function FNCGET_RETURN_COST (public)
+   1.3        23/09/2010  Wisan W.       1. Tuning Process
+                                            - Add Function WRITE_LOG (private)
+                                            - Add Function PRCGET_PARAMETER (public)
+                                            - Using Ref Cursor / Bulk Collect / ForAll
+                                            - Using Function Index for ITHTRANS_DATE
+   1.4        29/09/2010  Wisan W.       1. Tuning Process
+                                            - Use new temp table TMP_IV_BF_RETURN_SALES
+                                            - Revise function GET Return / Sales
+                                            - Add Function FNCGET_UNIT_COST (public)
+   1.5        01/10/2010  Wisan W.       1. Add Function FNCGET_TOTAL_AMOUNT_BY_SUPP (public)
+****************************************************************************************/
+
+    s_log_dir       CONSTANT    VARCHAR2(50)    := 'MSL_LOG';
+    s_log_fname CONSTANT    VARCHAR2(100)   := 'FridayStatement_'||USERENV('SESSIONID')||'_'||TO_CHAR(SYSDATE, 'YYYYMMDD_HH24MISS')||'.log';
+
+    PROCEDURE WRITE_LOG(pi_mode NUMBER, -- 0 = START / 1 = FINISH / 2 = Others
+                                            pi_msg  VARCHAR2    DEFAULT NULL) IS
+        file_handle UTL_FILE.FILE_TYPE;
+
+    BEGIN
+        file_handle := UTL_FILE.FOPEN(s_log_dir, s_log_fname, 'A');
+
+        IF  pi_mode = 0 THEN
+                UTL_FILE.PUT_LINE(file_handle, pi_msg);
+                UTL_FILE.PUT_LINE(file_handle, '     Start - '||TO_CHAR(SYSDATE, 'DD/MM/YYYY HH24:MI:SS'));
+        ELSIF   pi_mode = 1 THEN
+                UTL_FILE.PUT_LINE(file_handle, '     Finish - '||TO_CHAR(SYSDATE, 'DD/MM/YYYY HH24:MI:SS'));
+        ELSE
+                UTL_FILE.PUT_LINE(file_handle, pi_msg);
+        END IF;
+
+        UTL_FILE.FCLOSE(file_handle);
+    END WRITE_LOG;
+
+    FUNCTION FNCGET_RETURN_COST(piv_ou_code         VARCHAR2,
+                                                            pid_as_of_date  DATE,
+                              piv_fs_code           VARCHAR2)
+                                                            RETURN NUMBER IS
+        d_st_date   DATE        := TRUNC(ADD_MONTHS(LAST_DAY(pid_as_of_date)+1, -1));
+        n_cost      NUMBER  := 0;
+        n_seq           NUMBER  := 1;
+        v_supp      db_product_dtl.pdtmain_supplier%TYPE;
+
+    BEGIN
+        BEGIN
+            SELECT  TRUNC(NVL(MAX(A.bfcgbf_date)+1, ADD_MONTHS(LAST_DAY(pid_as_of_date)+1, -1)))
+            INTO        d_st_date
+            FROM        iv_bf_cg_statement A
+            WHERE       A.bfcgou_code               = piv_ou_code
+            AND         A.bfcgfinished_code = piv_fs_code
+            AND         A.bfcgbf_date               < TRUNC(pid_as_of_date) + 1;
+            EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+        END;
+
+        BEGIN
+            SELECT  A.pdtmain_supplier
+            INTO        v_supp
+            FROM        db_product_dtl A
+            WHERE       A.pdtfinished_code  = piv_fs_code;
+            EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+        END;
+
+        PKGIV_MISTINE_STATEMENT.PRCCALC_FRIDAY_CF(   piv_ou_code,
+                                              d_st_date,
+                                              TRUNC(pid_as_of_date) + 0.99999,
+                                              v_supp,
+                                              v_supp,
+                                              piv_fs_code,
+                                              piv_fs_code);
+
+        BEGIN
+            SELECT  NVL(MIN(A.tbfcgseq), 1)
+            INTO        n_seq
+            FROM        tmp_iv_bf_cg_statement A
+            WHERE       A.tbfcgfinished_code    = piv_fs_code
+            AND         NVL(A.tbfcgqty_unit, 0)+NVL(A.tbfcgrcv_qty, 0)-NVL(A.tbfcgreturn_qty, 0)-NVL(A.tbfcgsales_qty, 0)-NVL(A.tbfcgcompensate_qty, 0) > 0;
+            EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+        END;
+
+        BEGIN
+            SELECT  NVL(A.tbfcgcost_per_unit, 0)
+            INTO        n_cost
+            FROM        tmp_iv_bf_cg_statement A
+            WHERE       A.tbfcgfinished_code    = piv_fs_code
+            AND         A.tbfcgseq                      = n_seq;
+            EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+        END;
+
+        RETURN(n_cost);
+    END FNCGET_RETURN_COST;
+--------------------------------------------------------------------------------
+    FUNCTION FNCGET_SEQ_IV_BF_CG_STATEMENT( piv_fs_code VARCHAR2)
+                                                                                    RETURN NUMBER IS
+        n_seq   tmp_iv_bf_cg_statement.tbfcgseq%TYPE;
+
+    BEGIN
+        BEGIN
+      SELECT    NVL(MAX(A.tbfcgseq), 0) + 1
+      INTO      n_seq
+      FROM      tmp_iv_bf_cg_statement A
+      WHERE     A.tbfcgfinished_code    = piv_fs_code;
+      EXCEPTION WHEN NO_DATA_FOUND THEN n_seq   := 1;
+    END;
+
+        RETURN(n_seq);
+    END FNCGET_SEQ_IV_BF_CG_STATEMENT;
+--------------------------------------------------------------------------------
+    FUNCTION FNCGET_TOTAL_AMOUNT_BY_SUPP(   piv_ou_code         VARCHAR2,
+                                                                                piv_supp_code       VARCHAR2,
+                                                                                piv_vat_type        VARCHAR2,
+                                                                                piv_adj_period  VARCHAR2,
+                                                                                piv_approve_id  VARCHAR2    DEFAULT NULL)
+                                                                                RETURN NUMBER IS
+        v_vat_type  pp_supplier.sprvat_type%TYPE    := piv_vat_type;
+        n_amount        NUMBER  := 0;
+        n_vat_amt       NUMBER  := 0;
+        n_adj_amt       NUMBER  := 0;
+        n_adj_vat       NUMBER  := 0;
+        n_def_rate  NUMBER  := 0;
+
+    BEGIN
+        IF  v_vat_type IS NULL THEN
+                BEGIN
+                    SELECT  A.sprvat_type
+                    INTO        v_vat_type
+                    FROM        pp_supplier A
+                    WHERE       A.sprou_code    = piv_ou_code
+                    AND         A.sprsup_code   = piv_supp_code;
+                    EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+                END;
+        END IF;
+
+        BEGIN
+            SELECT  NVL(MAX(N.pdtproduct_vat), 0)
+            INTO        n_def_rate
+            FROM        db_product_dtl N
+            WHERE       N.pdtmain_supplier  = piv_supp_code;
+            EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+        END;
+
+        BEGIN
+            SELECT  SUM(NVL(O.tbfcgsales_amount, 0) + NVL(O.tbfcgcompensate_amt, 0)),
+                            DECODE(v_vat_type, 'N', 0, ROUND(SUM((NVL(O.tbfcgsales_amount, 0) + NVL(O.tbfcgcompensate_amt, 0)) * NVL(N.pdtproduct_vat, 0) / 100), 2))
+            INTO        n_amount, n_vat_amt
+            FROM        db_product_dtl N, tmp_iv_bf_cg_statement O
+            WHERE       N.pdtmain_supplier      = piv_supp_code
+            AND         O.tbfcgfinished_code    = N.pdtfinished_code
+            AND         EXISTS  (   SELECT  1
+                                                FROM        db_product M
+                                                WHERE       M.prdbrand                  = N.pdtbrand
+                                                AND         M.prdproduct_code       = N.pdtproduct_code
+                                                AND         M.prdproduction_id  LIKE NVL(piv_approve_id, '%'));
+            EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+        END;
+
+        BEGIN
+            SELECT  SUM(A.cgaadj_amount),
+                            SUM(DECODE(DECODE(v_vat_type, 'N', '0', PKGIV_MISTINE_STATEMENT.FNCGET_VAT_FLAG(A.cgaadj_type_code)), '0', 0,
+                                    ROUND(NVL(A.cgaadj_amount, 0) * n_def_rate / 100, 2)))
+            INTO        n_adj_amt, n_adj_vat
+            FROM        iv_cg_adjustment A
+            WHERE       A.cgaou_code        = piv_ou_code
+            AND         A.cgasup_code       = piv_supp_code
+            AND         A.cgamonth_end  = piv_adj_period;
+            EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+        END;
+
+        RETURN(NVL(n_amount, 0) + NVL(n_vat_amt, 0) + NVL(n_adj_amt, 0) + NVL(n_adj_vat, 0));
+    END FNCGET_TOTAL_AMOUNT_BY_SUPP;
+--------------------------------------------------------------------------------
+    FUNCTION FNCGET_UNIT_COST(piv_ou_code   VARCHAR2,
+                                                        piv_fs_code VARCHAR2)
+                                                        RETURN NUMBER IS
+        d_date  DATE    := NULL;
+        n_seq       NUMBER;
+        n_cost  NUMBER  := 0;
+
+    BEGIN
+        BEGIN
+            SELECT  MAX(X.bfcgbf_date)
+            INTO        d_date
+            FROM        iv_bf_cg_statement X
+            WHERE       X.bfcgou_code               = piv_ou_code
+            AND         X.bfcgfinished_code = piv_fs_code
+            AND         NVL(X.bfcgcost_per_unit, 0) > 0;
+            EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+        END;
+
+        IF  d_date IS NOT NULL THEN
+                BEGIN
+                    SELECT  MAX(X.bfcgseq)
+                    INTO        n_seq
+                    FROM        iv_bf_cg_statement X
+                    WHERE       X.bfcgou_code               = piv_ou_code
+                    AND         X.bfcgbf_date               = d_date
+                    AND         X.bfcgfinished_code = piv_fs_code
+                    AND         NVL(X.bfcgcost_per_unit, 0) > 0;
+                    EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+                END;
+
+                BEGIN
+                    SELECT  NVL(A.bfcgcost_per_unit, 0)
+                    INTO        n_cost
+                    FROM        iv_bf_cg_statement A
+                    WHERE       A.bfcgou_code               = piv_ou_code
+                    AND         A.bfcgbf_date               =   d_date
+                    AND         A.bfcgfinished_code = piv_fs_code
+                    AND         A.bfcgseq                       = n_seq;
+                    EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+                END;
+        END IF;
+
+        RETURN(n_cost);
+    END FNCGET_UNIT_COST;
+--------------------------------------------------------------------------------
+    FUNCTION FNCGET_VAT_FLAG(   piv_entry_code  VARCHAR2)
+                                                        RETURN VARCHAR2 IS
+        v_vat_flag  VARCHAR2(1) := '0';
+
+    BEGIN
+        BEGIN
+            SELECT  NVL(X.padflag1, '0')
+            INTO        v_vat_flag
+            FROM        su_param_dtl X
+            WHERE       X.padparam_id       = 530
+            AND         X.padentry_code = piv_entry_code
+            AND         ROWNUM                  = 1;
+        END;
+
+        RETURN(v_vat_flag);
+    END FNCGET_VAT_FLAG;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCCALC_FRIDAY_CF(piv_ou_code VARCHAR2,
+                              pid_st_date   DATE,
+                              pid_en_date   DATE,
+                              piv_st_supp   VARCHAR2,
+                              piv_en_supp   VARCHAR2,
+                              piv_st_fs     VARCHAR2    DEFAULT NULL,
+                              piv_en_fs     VARCHAR2    DEFAULT NULL) IS
+        d_exist_bf_date DATE    := ADD_MONTHS(LAST_DAY(TRUNC(pid_st_date)), -1);
+
+    BEGIN
+        BEGIN
+            SELECT  NVL(MAX(A.bfcgbf_date), ADD_MONTHS(LAST_DAY(TRUNC(pid_st_date)), -1))
+            INTO        d_exist_bf_date
+            FROM        iv_bf_cg_statement A
+            WHERE       A.bfcgou_code               = piv_ou_code
+            AND         A.bfcgfinished_code BETWEEN NVL(piv_st_fs, '!') AND NVL(piv_en_fs, CHR(250))
+            AND         A.bfcgbf_date               < TRUNC(pid_st_date);
+            EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+        END;
+
+        PKGIV_MISTINE_STATEMENT.PRCSETUP_PARAMETER(piv_ou_code,
+                                              TRUNC(pid_st_date),
+                                              TRUNC(pid_en_date) + 0.99999,
+                                              d_exist_bf_date,
+                                              piv_st_supp,
+                                              piv_en_supp,
+                                              piv_st_fs,
+                                              piv_en_fs);
+
+        PKGIV_MISTINE_STATEMENT.PRCGET_PRODUCT_TYPE;
+        PKGIV_MISTINE_STATEMENT.PRCGET_RCV_REV_TYPE;
+        PKGIV_MISTINE_STATEMENT.PRCGET_RET_REV_TYPE;
+        PKGIV_MISTINE_STATEMENT.PRCGET_ADJ_TYPE;
+        PKGIV_MISTINE_STATEMENT.PRCGET_TRANS_NATURE;
+
+        PKGIV_MISTINE_STATEMENT.PRCPREPARE_FRIDAY_BF;
+        PKGIV_MISTINE_STATEMENT.PRCGET_RCV_RET_SALES_QTY;
+        PKGIV_MISTINE_STATEMENT.PRCPREPARE_FRIDAY_RCV;
+        PKGIV_MISTINE_STATEMENT.PRCPREPARE_FRIDAY_RET_SALES;
+    END PRCCALC_FRIDAY_CF;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCGET_ADJ_TYPE IS
+    BEGIN
+        BEGIN
+      SELECT    A.padcha2
+      INTO      PKGIV_MISTINE_STATEMENT.v_adj_type
+      FROM      su_param_dtl A
+      WHERE     A.padparam_id = 527
+      AND           A.padcha1           = 'BWIVDT04' -- Adjust transaction
+      AND           ROWNUM              = 1;
+      EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+        END;
+    END PRCGET_ADJ_TYPE;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCGET_PARAMETER( pod_st_date         OUT DATE,
+                                                            pod_en_date         OUT DATE,
+                                                            pov_prd_type        OUT VARCHAR2,
+                                                            pov_rcv_type        OUT VARCHAR2,
+                                                            pov_rcv_revers  OUT VARCHAR2,
+                                                            pov_ret_type        OUT VARCHAR2,
+                                                            pov_ret_revers  OUT VARCHAR2,
+                                                            pov_adj_type        OUT VARCHAR2,
+                                                            pov_rcvrev_sub  OUT VARCHAR2,
+                                                            pov_tran_plus       OUT VARCHAR2,
+                                                            pov_tran_minus  OUT VARCHAR2) IS
+    BEGIN
+        pod_st_date         := PKGIV_MISTINE_STATEMENT.d_start_date;
+        pod_en_date         := PKGIV_MISTINE_STATEMENT.d_end_date;
+        pov_prd_type        := PKGIV_MISTINE_STATEMENT.v_prd_type;
+        pov_rcv_type        := PKGIV_MISTINE_STATEMENT.v_rcv_type;
+        pov_rcv_revers  := PKGIV_MISTINE_STATEMENT.v_rcv_revers;
+        pov_ret_type        := PKGIV_MISTINE_STATEMENT.v_ret_type;
+        pov_ret_revers  := PKGIV_MISTINE_STATEMENT.v_ret_revers;
+        pov_adj_type        := PKGIV_MISTINE_STATEMENT.v_adj_type;
+        pov_rcvrev_sub  := PKGIV_MISTINE_STATEMENT.v_rcvrev_sub;
+        pov_tran_plus       := PKGIV_MISTINE_STATEMENT.v_trans_plus;
+        pov_tran_minus  := PKGIV_MISTINE_STATEMENT.v_trans_minus;
+    END PRCGET_PARAMETER;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCGET_PRODUCT_TYPE IS
+    BEGIN
+        BEGIN
+      SELECT    A.padentry_code
+      INTO      PKGIV_MISTINE_STATEMENT.v_prd_type
+      FROM      su_param_dtl A
+      WHERE     A.padparam_id = 337
+      AND           A.padflag1      = '1' -- Consignment
+      AND           ROWNUM              = 1;
+      EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+    END;
+    END PRCGET_PRODUCT_TYPE;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCGET_RCV_REV_TYPE IS
+    BEGIN
+        BEGIN
+      SELECT    A.padcha2, A.padcha3
+      INTO      PKGIV_MISTINE_STATEMENT.v_rcv_type, PKGIV_MISTINE_STATEMENT.v_rcv_revers
+      FROM      su_param_dtl A
+      WHERE     A.padparam_id = 527
+      AND           A.padcha1           = 'BWIVDT01' -- Receive transaction
+      AND           ROWNUM              = 1;
+      EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+        END;
+
+        BEGIN
+      SELECT    A.padcha5
+      INTO      PKGIV_MISTINE_STATEMENT.v_rcvrev_sub
+      FROM      su_param_dtl A
+      WHERE     A.padparam_id = 527
+      AND           A.padcha1           = 'BWIVDT08' -- Return to supplier transaction
+      AND           ROWNUM              = 1;
+      EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+        END;
+    END PRCGET_RCV_REV_TYPE;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCGET_RET_REV_TYPE IS
+    BEGIN
+        BEGIN
+      SELECT    A.padcha2, A.padcha3
+      INTO      PKGIV_MISTINE_STATEMENT.v_ret_type, PKGIV_MISTINE_STATEMENT.v_ret_revers
+      FROM      su_param_dtl A
+      WHERE     A.padparam_id = 527
+      AND           A.padcha1           = 'BWIVDT14' -- Return transaction
+      AND           ROWNUM              = 1;
+      EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+        END;
+    END PRCGET_RET_REV_TYPE;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCGET_RCV_RET_SALES_QTY IS
+        TYPE    refcur      IS REF CURSOR;
+        TYPE    date_tab    IS TABLE OF tmp_iv_rcv_ret_sales.brrstrans_date%TYPE;
+        TYPE    num_tab     IS TABLE OF NUMBER;
+        TYPE    fs_tab      IS TABLE OF iv_trans_dtl.itdfinished_code%TYPE;
+        TYPE    docno_tab   IS TABLE OF iv_trans_dtl.itdtrans_no%TYPE;
+
+        c_prc_dat       refcur;
+
+        t_fs_code       fs_tab      := NULL;
+        t_doc_date  date_tab    := NULL;
+        t_doc_no        docno_tab   := NULL;
+        t_cost          num_tab     := NULL;
+        t_qty               num_tab     := NULL;
+
+        v_adj_rea       VARCHAR2(500)   := NULL;
+        v_statement VARCHAR2(10000);
+
+    BEGIN
+        BEGIN
+            SELECT  WM_CONCAT(''''||A.reareason_code||'''')
+            INTO        v_adj_rea
+            FROM        wh_reason A
+            WHERE       A.reaou_code                    = PKGIV_MISTINE_STATEMENT.v_ou_code
+            AND         A.reatrans_type_code    = PKGIV_MISTINE_STATEMENT.v_adj_type
+            AND         A.reastatement_flag     = '0'
+            AND         A.reainactive_status    = '0';
+            EXCEPTION WHEN OTHERS THEN NULL;
+        END;
+
+        IF  v_adj_rea IS NOT NULL THEN
+                v_adj_rea   := ' AND B.itdreason_code NOT IN ('||v_adj_rea||')';
+        END IF;
+
+        v_adj_rea   := '(A.ithtrans_type_code = '''||PKGIV_MISTINE_STATEMENT.v_adj_type||''''||v_adj_rea||')';
+
+        v_statement := 'SELECT  /*+ INDEX(A,IDX5_IV_TRANS_HDR) */ B.itdfinished_code, '||
+                                                     '( CASE '||
+                                                             'WHEN  A.ithtrans_type_code = '''||PKGIV_MISTINE_STATEMENT.v_rcv_type||''' OR '||
+                                                                         '(A.ithtrans_type_code = '''||PKGIV_MISTINE_STATEMENT.v_rcv_revers||''' AND '||
+                                                                            'A.ithtrans_sub_type != '''||PKGIV_MISTINE_STATEMENT.v_rcvrev_sub||''') '||
+                                                                 'THEN TO_CHAR(A.ithtrans_date, ''YYYYMMDD'')||TO_CHAR(A.ithcre_date, ''YYYYMMDDHH24MISS'') '||
+                                                             'ELSE  ''00000000'' '||
+                                                         'END), '|| --> Transaction Date
+                                                     '( CASE '||
+                                                             'WHEN  A.ithtrans_type_code = '''||PKGIV_MISTINE_STATEMENT.v_rcv_type||''' '||
+                                                                 'THEN A.ithtrans_no '||
+                                                             'WHEN  A.ithtrans_type_code = '''||PKGIV_MISTINE_STATEMENT.v_rcv_revers||''' AND '||
+                                                                         'A.ithtrans_sub_type != '''||PKGIV_MISTINE_STATEMENT.v_rcvrev_sub||''' '||
+                                                                 'THEN A.ithref_no '||
+                                                             'WHEN  A.ithtrans_type_code = '''||PKGIV_MISTINE_STATEMENT.v_rcv_revers||''' AND '||
+                                                                         'A.ithtrans_sub_type = '''||PKGIV_MISTINE_STATEMENT.v_rcvrev_sub||''' '||
+                                                                 'THEN ''RETURN'' '||
+                                                             'ELSE  ''SALES'' '||
+                                                         'END), '|| --> Transaction No.
+                                                     '( CASE '||
+                                                             'WHEN  A.ithtrans_type_code IN ('''||PKGIV_MISTINE_STATEMENT.v_rcv_type||''','''||
+                                                                                                                                        PKGIV_MISTINE_STATEMENT.v_rcv_revers||''') '||
+                                                                 'THEN NVL(B.itdcost_per_unit, 0) '||
+                                                             'ELSE  0 '||
+                                                         'END), '|| --> Cost per Unit
+                                                     'SUM(( CASE '||
+                                                                     'WHEN  A.ithtrans_type_code IN ('''||PKGIV_MISTINE_STATEMENT.v_rcv_type||''','||
+                                                                                                                                                PKGIV_MISTINE_STATEMENT.v_trans_minus||') OR '||
+                                                                                 '(A.ithtrans_type_code = '''||PKGIV_MISTINE_STATEMENT.v_rcv_revers||''' AND '||
+                                                                                    'A.ithtrans_sub_type = '''||PKGIV_MISTINE_STATEMENT.v_rcvrev_sub||''') '||
+                                                                         'THEN NVL(B.itdqty_unit, 0) '||
+                                                                     'WHEN  A.ithtrans_type_code IN ('||PKGIV_MISTINE_STATEMENT.v_trans_plus||') OR '||
+                                                                                    v_adj_rea||' OR '||
+                                                                                 '(A.ithtrans_type_code = '''||PKGIV_MISTINE_STATEMENT.v_rcv_revers||''' AND '||
+                                                                                    'A.ithtrans_sub_type != '''||PKGIV_MISTINE_STATEMENT.v_rcvrev_sub||''') '||
+                                                                         'THEN (-1)*NVL(B.itdqty_unit, 0) '||
+                                                                     'ELSE  0 '||
+                                                                 'END)) '|| --> Qty (BF+Receive-Return-Sales)
+                                                                                        --> RCV(+)/RCV_REV_NOT_SUB(-)/RCV_REV_SUB(+)/ADJ(+,-)/ISS_SHP(+)/ISS_SHP_REV(-)
+                                     'FROM      iv_trans_hdr A, iv_trans_dtl B '||
+                                     'WHERE     A.ithou_code                        = :1 '||
+                                     'AND           A.ithtrans_type_code        IN ('''||   PKGIV_MISTINE_STATEMENT.v_rcv_type||''','''||
+                                                                                                                            PKGIV_MISTINE_STATEMENT.v_rcv_revers||''','''||
+                                                                                                                            PKGIV_MISTINE_STATEMENT.v_adj_type||''','||
+                                                                                                                            PKGIV_MISTINE_STATEMENT.v_trans_plus||','||
+                                                                                                                            PKGIV_MISTINE_STATEMENT.v_trans_minus||') '||
+                                     'AND           A.ithtrans_status               = ''1'' '||
+                                     'AND           TRUNC(A.ithtrans_date)  BETWEEN :2 AND :3 '||
+                                     'AND           B.itdfinished_code          BETWEEN :4 AND :5 '||
+                                     'AND           NVL(B.itdqty_unit, 0)       != 0 '||
+                                     'AND           B.itdou_code                        = A.ithou_code '||
+                                     'AND           B.itdwh_code                        = A.ithwh_code '||
+                                     'AND           B.itdtrans_type_code        = A.ithtrans_type_code '||
+                                     'AND           B.itdtrans_sub_type         = A.ithtrans_sub_type '||
+                                     'AND           B.itdtrans_no                       = A.ithtrans_no '||
+                                     'AND           EXISTS  (   SELECT  1 '||
+                                                                         'FROM      wh_warehouse X1 '||
+                                                                         'WHERE     X1.whwou_code   = A.ithou_code '||
+                                                                         'AND           X1.whwwh_code   = A.ithwh_code '||
+                                                                         'AND           X1.whwwh_type   IN (''F'', ''I'', ''S'')) '||
+                                     'AND           EXISTS  (   SELECT  1 '||
+                                                                         'FROM      db_product_dtl M, db_product N '||
+                                                                         'WHERE     M.pdtfinished_code  = B.itdfinished_code '||
+                                                                         'AND           M.pdtmain_supplier  BETWEEN :6 AND :7 '||
+                                                                         'AND           N.prdproduct_type       = :8 '||
+                                                                         'AND           N.prdbrand                  = M.pdtbrand '||
+                                                                         'AND           N.prdproduct_code       = M.pdtproduct_code) '||
+                                     'GROUP BY B.itdfinished_code, '||
+                                                     '( CASE '||
+                                                             'WHEN  A.ithtrans_type_code = '''||PKGIV_MISTINE_STATEMENT.v_rcv_type||''' OR '||
+                                                                         '(A.ithtrans_type_code = '''||PKGIV_MISTINE_STATEMENT.v_rcv_revers||''' AND '||
+                                                                            'A.ithtrans_sub_type != '''||PKGIV_MISTINE_STATEMENT.v_rcvrev_sub||''') '||
+                                                                 'THEN TO_CHAR(A.ithtrans_date, ''YYYYMMDD'')||TO_CHAR(A.ithcre_date, ''YYYYMMDDHH24MISS'') '||
+                                                             'ELSE  ''00000000'' '||
+                                                         'END), '|| -- Transaction Date
+                                                        '(CASE '||
+                                                             'WHEN  A.ithtrans_type_code = '''||PKGIV_MISTINE_STATEMENT.v_rcv_type||''' '||
+                                                                 'THEN A.ithtrans_no '||
+                                                             'WHEN  A.ithtrans_type_code = '''||PKGIV_MISTINE_STATEMENT.v_rcv_revers||''' AND '||
+                                                                         'A.ithtrans_sub_type != '''||PKGIV_MISTINE_STATEMENT.v_rcvrev_sub||''' '||
+                                                                 'THEN A.ithref_no '||
+                                                             'WHEN  A.ithtrans_type_code = '''||PKGIV_MISTINE_STATEMENT.v_rcv_revers||''' AND '||
+                                                                         'A.ithtrans_sub_type = '''||PKGIV_MISTINE_STATEMENT.v_rcvrev_sub||''' '||
+                                                                 'THEN ''RETURN'' '||
+                                                             'ELSE  ''SALES'' '||
+                                                         'END), '|| -- Transaction No.
+                                                        '(CASE '||
+                                                             'WHEN  A.ithtrans_type_code IN ('''||PKGIV_MISTINE_STATEMENT.v_rcv_type||''','''||
+                                                                                                                                        PKGIV_MISTINE_STATEMENT.v_rcv_revers||''') '||
+                                                                 'THEN NVL(B.itdcost_per_unit, 0) '||
+                                                             'ELSE  0 '||
+                                                         'END)'; -- Cost per Unit
+
+        OPEN    c_prc_dat FOR v_statement   USING PKGIV_MISTINE_STATEMENT.v_ou_code, PKGIV_MISTINE_STATEMENT.d_start_date,
+                                                                                    PKGIV_MISTINE_STATEMENT.d_end_date, PKGIV_MISTINE_STATEMENT.v_start_fs,
+                                                                                    PKGIV_MISTINE_STATEMENT.v_end_fs, PKGIV_MISTINE_STATEMENT.v_start_supp,
+                                                                                    PKGIV_MISTINE_STATEMENT.v_end_supp, PKGIV_MISTINE_STATEMENT.v_prd_type;
+        FETCH c_prc_dat BULK COLLECT INTO t_fs_code, t_doc_date, t_doc_no, t_cost, t_qty;
+        CLOSE   c_prc_dat;
+
+        IF  t_fs_code.COUNT > 0 THEN
+                BEGIN
+                    FORALL i IN t_fs_code.FIRST..t_fs_code.LAST SAVE EXCEPTIONS
+                        INSERT INTO tmp_iv_rcv_ret_sales(   brrsfinished_code, brrstrans_date, brrstrans_no,
+                                                                                            brrsunit_cost, brrsunit_qty)
+                        VALUES (t_fs_code(i), t_doc_date(i), t_doc_no(i), t_cost(i), t_qty(i));
+                    EXCEPTION WHEN OTHERS THEN NULL;
+                END;
+        END IF; -- t_fs_code.COUNT > 0
+    END PRCGET_RCV_RET_SALES_QTY;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCGET_TRANS_NATURE IS
+        CURSOR  cur_trans_nature_loop
+                        IS  SELECT  B.padcha1, WM_CONCAT(CHR(39)||B.padentry_code||CHR(39)) trans_nature
+                                FROM     (SELECT    DISTINCT X.reatrans_type_code
+                                                FROM        wh_reason X
+                                                WHERE       X.reaou_code                    = PKGIV_MISTINE_STATEMENT.v_ou_code
+                                                AND         X.reainactive_status    = '0' -- Active
+                                                AND         X.reastatement_flag     = '1' -- Use for calculate statement
+                                                AND         X.reatrans_type_code    IS NOT NULL
+                                                AND         X.reatrans_type_code    NOT IN (PKGIV_MISTINE_STATEMENT.v_rcv_type, PKGIV_MISTINE_STATEMENT.v_rcv_revers,
+                                                                                                                            PKGIV_MISTINE_STATEMENT.v_ret_type, PKGIV_MISTINE_STATEMENT.v_ret_revers,
+                                                                                                                            PKGIV_MISTINE_STATEMENT.v_adj_type)) A,
+                                                su_param_dtl B
+                                WHERE       B.padparam_id   = 525
+                                AND         B.padcha1               IN ('1', '2')
+                                AND         B.padentry_code = A.reatrans_type_code
+                                GROUP BY B.padcha1;
+
+    BEGIN
+        FOR trans_n IN cur_trans_nature_loop LOOP
+                IF  trans_n.padcha1 = '1' THEN
+                        PKGIV_MISTINE_STATEMENT.v_trans_plus     := trans_n.trans_nature;
+                ELSE
+                        PKGIV_MISTINE_STATEMENT.v_trans_minus    := trans_n.trans_nature;
+                END IF;
+        END LOOP; -- trans_n IN cur_trans_nature_loop
+    END PRCGET_TRANS_NATURE;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCPREPARE_FRIDAY_BF IS
+    BEGIN
+        BEGIN
+            INSERT INTO tmp_iv_bf_cg_statement( tbfcgfinished_code,
+                                                                                    tbfcgseq,
+                                                                                    tbfcgcost_per_unit,
+                                                                                    tbfcgqty_unit,
+                                                                                    tbfcgbf_amount)
+            SELECT  A.bfcgfinished_code,
+                            A.bfcgseq,
+                            NVL(A.bfcgcost_per_unit, 0),
+                            NVL(A.bfcgqty_unit, 0),
+                            ROUND(NVL(A.bfcgqty_unit, 0)*NVL(A.bfcgcost_per_unit, 0), 4)
+            FROM        iv_bf_cg_statement A
+            WHERE       A.bfcgou_code               = PKGIV_MISTINE_STATEMENT.v_ou_code
+            AND         A.bfcgbf_date               = PKGIV_MISTINE_STATEMENT.d_bf_date
+            AND         A.bfcgfinished_code BETWEEN PKGIV_MISTINE_STATEMENT.v_start_fs AND PKGIV_MISTINE_STATEMENT.v_end_fs
+            AND         NVL(A.bfcgqty_unit, 0)  != 0
+            AND         EXISTS      (   SELECT  1
+                                                    FROM        db_product_dtl M, db_product N
+                                                    WHERE       M.pdtfinished_code  = A.bfcgfinished_code
+                                                    AND         M.pdtmain_supplier  BETWEEN PKGIV_MISTINE_STATEMENT.v_start_supp AND PKGIV_MISTINE_STATEMENT.v_end_supp
+                                                    AND         N.prdproduct_type       = PKGIV_MISTINE_STATEMENT.v_prd_type
+                                                    AND         N.prdbrand                  = M.pdtbrand
+                                                    AND         N.prdproduct_code       = M.pdtproduct_code);
+            EXCEPTION WHEN DUP_VAL_ON_INDEX THEN NULL;
+    END;
+
+        IF  PKGIV_MISTINE_STATEMENT.d_start_date > PKGIV_MISTINE_STATEMENT.d_bf_date + 1 THEN
+                DECLARE
+                    d_bak_st_date   DATE    := PKGIV_MISTINE_STATEMENT.d_start_date;
+                    d_bak_en_date   DATE    := PKGIV_MISTINE_STATEMENT.d_end_date;
+                    n_seq_tmp           NUMBER;
+
+                    CURSOR  cf_data
+                                    IS  SELECT  A.tbfcgfinished_code, A.tbfcgcost_per_unit,
+                                                            NVL(A.tbfcgqty_unit, 0) + NVL(A.tbfcgrcv_qty, 0) - NVL(A.tbfcgreturn_qty, 0) - NVL(A.tbfcgsales_qty, 0) - NVL(A.tbfcgcompensate_qty, 0) cf_qty
+                                            FROM        tmp_iv_bf_cg_statement A
+                                            WHERE       A.tbfcgrec_type = '1'
+                                            ORDER BY A.tbfcgfinished_code, A.tbfcgcost_per_unit;
+
+                BEGIN
+                    PKGIV_MISTINE_STATEMENT.d_end_date       := PKGIV_MISTINE_STATEMENT.d_start_date - 0.00001;
+                    PKGIV_MISTINE_STATEMENT.d_start_date := PKGIV_MISTINE_STATEMENT.d_bf_date + 1;
+
+                    PKGIV_MISTINE_STATEMENT.PRCGET_RCV_RET_SALES_QTY;
+                    PKGIV_MISTINE_STATEMENT.PRCPREPARE_FRIDAY_RCV;
+                    PKGIV_MISTINE_STATEMENT.PRCPREPARE_FRIDAY_RET_SALES;
+
+                    FOR tmp IN cf_data LOOP
+                            BEGIN
+                UPDATE  tmp_iv_bf_cg_statement A
+                SET         A.tbfcgqty_unit             = NVL(A.tbfcgqty_unit, 0) + tmp.cf_qty,
+                                                A.tbfcgbf_amount            = ROUND((NVL(A.tbfcgqty_unit, 0) + tmp.cf_qty)*NVL(A.tbfcgcost_per_unit, 0), 4)
+                WHERE       A.tbfcgfinished_code    = tmp.tbfcgfinished_code
+                AND         A.tbfcgcost_per_unit    = tmp.tbfcgcost_per_unit
+                                AND         A.tbfcgrec_type             = '0';
+                            END;
+
+                            IF  SQL%ROWCOUNT = 0 THEN
+                                    n_seq_tmp   := PKGIV_MISTINE_STATEMENT.FNCGET_SEQ_IV_BF_CG_STATEMENT(tmp.tbfcgfinished_code);
+
+                  BEGIN
+                    INSERT INTO tmp_iv_bf_cg_statement( tbfcgfinished_code,
+                                                        tbfcgseq,
+                                                        tbfcgcost_per_unit,
+                                                        tbfcgqty_unit,
+                                                                                                                tbfcgbf_amount,
+                                                        tbfcgrec_type)
+                    VALUES (tmp.tbfcgfinished_code,
+                            n_seq_tmp,
+                            tmp.tbfcgcost_per_unit,
+                            tmp.cf_qty,
+                                                        ROUND(tmp.cf_qty*tmp.tbfcgcost_per_unit, 4),
+                            '0');
+                                        EXCEPTION WHEN DUP_VAL_ON_INDEX THEN NULL;
+                                    END;
+                            END IF; -- SQL%ROWCOUNT = 0
+                    END LOOP;
+
+                    BEGIN
+                        DELETE  tmp_iv_bf_cg_statement A
+                        WHERE       A.tbfcgrec_type = '1';
+                    END;
+
+                    BEGIN
+                        DELETE  tmp_iv_rcv_ret_sales;
+                    END;
+
+                    PKGIV_MISTINE_STATEMENT.d_start_date := d_bak_st_date;
+                    PKGIV_MISTINE_STATEMENT.d_end_date       := d_bak_en_date;
+                END;
+        END IF; -- PKGIV_MISTINE_STATEMENT.d_start_date > PKGIV_MISTINE_STATEMENT.d_bf_date + 1
+    END PRCPREPARE_FRIDAY_BF;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCPREPARE_FRIDAY_RCV IS
+        TYPE    fs_tab  IS TABLE OF iv_trans_dtl.itdfinished_code%TYPE;
+
+        CURSOR  rcv_hdr
+                        IS  SELECT  DISTINCT A.brrsfinished_code
+                                FROM        tmp_iv_rcv_ret_sales A
+                                WHERE       A.brrstrans_no  NOT IN ('RETURN', 'SALES');
+
+        CURSOR  rcv_dtl(pi_fs_code  VARCHAR2)
+                        IS  SELECT  Z.unit_cost, Z.unit_qty
+                                FROM        (   SELECT  A.brrstrans_date tran_date, A.brrstrans_no tran_no,
+                                                                    NVL(A.brrsunit_cost, 0) unit_cost, NVL(A.brrsunit_qty, 0) unit_qty,
+                                                                    SUM(A.brrsunit_qty) OVER (PARTITION BY A.brrsfinished_code, A.brrsunit_cost) sum_qty
+                                                    FROM        tmp_iv_rcv_ret_sales A
+                                                    WHERE       A.brrsfinished_code = pi_fs_code
+                                                    AND         A.brrstrans_no          NOT IN ('RETURN', 'SALES')) Z
+                                WHERE       Z.sum_qty   != 0
+                                ORDER BY Z.tran_date, Z.tran_no;
+/*
+        CURSOR  rcv_del
+                        IS  SELECT  A.tbfcgfinished_code fscode, A.tbfcgcost_per_unit unit_cost,
+                                                WM_CONCAT(A.tbfcgseq)||',' seq_list
+                                FROM        tmp_iv_bf_cg_statement A
+                                WHERE       NVL(A.tbfcgrcv_qty, 0)  != 0
+                                AND         NVL(A.tbfcgqty_unit, 0) = 0
+                                GROUP BY A.tbfcgfinished_code, A.tbfcgcost_per_unit
+                                HAVING  COUNT(*) > 1 AND SUM(A.tbfcgrcv_qty) = 0;
+*/
+        t_fs_code   fs_tab  := NULL;
+        n_seq           tmp_iv_bf_cg_statement.tbfcgseq%TYPE;
+        n_cost      NUMBER;
+
+    BEGIN
+        OPEN    rcv_hdr;
+        FETCH   rcv_hdr BULK COLLECT INTO t_fs_code;
+        CLOSE   rcv_hdr;
+
+        IF  t_fs_code.COUNT > 0 THEN
+                FOR i IN t_fs_code.FIRST..t_fs_code.LAST LOOP
+                        n_cost  := NULL;
+
+                        FOR tmp IN rcv_dtl(t_fs_code(i)) LOOP
+                                IF  rcv_dtl%ROWCOUNT = 1 OR tmp.unit_cost != n_cost THEN
+                                        IF  rcv_dtl%ROWCOUNT = 1 THEN
+                                                BEGIN
+                                                    SELECT  NVL(MAX(A.tbfcgseq), 0)
+                                                    INTO        n_seq
+                                                    FROM        tmp_iv_bf_cg_statement A
+                                                    WHERE       A.tbfcgfinished_code    = t_fs_code(i);
+                                                    EXCEPTION WHEN NO_DATA_FOUND THEN n_seq := 0;
+                                                END;
+
+                                                IF  n_seq <= 0 THEN
+                                                        n_seq       := 1;
+                                                        n_cost  := tmp.unit_cost;
+                                                ELSE
+                                                        BEGIN
+                                                            SELECT  A.tbfcgcost_per_unit
+                                                            INTO        n_cost
+                                                            FROM        tmp_iv_bf_cg_statement A
+                                                            WHERE       A.tbfcgfinished_code    = t_fs_code(i)
+                                                            AND         A.tbfcgseq                      = n_seq;
+                                                            EXCEPTION WHEN NO_DATA_FOUND THEN n_cost    := 0;
+                                                        END;
+
+                                                        IF  n_cost != tmp.unit_cost THEN
+                                                                n_seq       := n_seq + 1;
+                                                                n_cost  := tmp.unit_cost;
+                                                        END IF;
+                                                END IF;
+                                        ELSE
+                                                n_seq       := PKGIV_MISTINE_STATEMENT.FNCGET_SEQ_IV_BF_CG_STATEMENT(t_fs_code(i));
+                                                n_cost  := tmp.unit_cost;
+                                        END IF;
+                                END IF;
+
+                                BEGIN
+                                    INSERT INTO tmp_iv_bf_cg_statement( tbfcgfinished_code,
+                                                                                                            tbfcgseq,
+                                                                                                            tbfcgcost_per_unit,
+                                                                                                            tbfcgrcv_qty,
+                                                                                                            tbfcgrcv_amount)
+                                    VALUES (t_fs_code(i),
+                                                    n_seq,
+                                                    tmp.unit_cost,
+                                                    tmp.unit_qty,
+                                                    ROUND(tmp.unit_qty*tmp.unit_cost, 4));
+                                    EXCEPTION WHEN DUP_VAL_ON_INDEX THEN
+                                                            BEGIN
+                                                                UPDATE  tmp_iv_bf_cg_statement A
+                                                                SET         A.tbfcgrcv_qty              = NVL(A.tbfcgrcv_qty, 0) + tmp.unit_qty,
+                                                                                A.tbfcgrcv_amount           = ROUND((NVL(A.tbfcgrcv_qty, 0) + tmp.unit_qty)*A.tbfcgcost_per_unit, 4)
+                                                                WHERE       A.tbfcgfinished_code    = t_fs_code(i)
+                                                                AND         A.tbfcgseq                      = n_seq;
+                                                            END;
+                                END;
+                        END LOOP; -- tmp IN rcv_dtl(t_fs_code(i))
+                END LOOP; -- i IN t_fs_code.FIRST..t_fs_code.LAST
+/*
+                FOR del IN rcv_del LOOP
+                        BEGIN
+                            DELETE  tmp_iv_bf_cg_statement A
+                            WHERE       A.tbfcgfinished_code    = del.fscode
+                            AND         A.tbfcgcost_per_unit    = del.unit_cost
+                            AND         INSTR(del.seq_list, A.tbfcgseq||',')    > 0;
+                        END;
+                END LOOP;
+*/
+        END IF; -- t_fs_code.COUNT > 0
+    END PRCPREPARE_FRIDAY_RCV;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCPREPARE_FRIDAY_RET_SALES IS
+        TYPE    fs_tab      IS TABLE OF iv_trans_dtl.itdfinished_code%TYPE;
+        TYPE    num_tab     IS TABLE OF NUMBER;
+
+        CURSOR  fs_dat
+                        IS  SELECT  DISTINCT A.brrsfinished_code, A.brrsunit_cost
+                                FROM        tmp_iv_rcv_ret_sales A
+                                WHERE       A.brrstrans_no  = 'RETURN'
+                                AND         NOT EXISTS  (   SELECT  1
+                                                                            FROM        tmp_iv_bf_cg_statement B
+                                                                            WHERE       B.tbfcgfinished_code    = A.brrsfinished_code
+                                                                            AND         NVL(B.tbfcgcost_per_unit, 0)    = NVL(A.brrsunit_cost, 0));
+
+        CURSOR  fs_dat2
+                        IS  SELECT  DISTINCT A.brrsfinished_code
+                                FROM        tmp_iv_rcv_ret_sales A
+                                WHERE       A.brrstrans_no  IN ('RETURN', 'SALES')
+                                AND         NOT EXISTS  (   SELECT  1
+                                                                            FROM        tmp_iv_bf_cg_statement B
+                                                                            WHERE       B.tbfcgfinished_code    = A.brrsfinished_code);
+
+        CURSOR  fs_code
+                        IS  SELECT  DISTINCT A.brrsfinished_code
+                                FROM        tmp_iv_rcv_ret_sales A
+                                WHERE       A.brrstrans_no  IN ('RETURN', 'SALES');
+
+        CURSOR  fifo_ret_dat(pi_fs_code VARCHAR2)
+                        IS  SELECT  A.tbfcgseq, NVL(A.tbfcgcost_per_unit, 0), NVL(A.tbfcgqty_unit, 0)+NVL(A.tbfcgrcv_qty, 0)
+                                FROM        tmp_iv_bf_cg_statement A
+                                WHERE       A.tbfcgfinished_code    = pi_fs_code
+                                AND         MOD(A.tbfcgseq, 1)      = 0
+                                ORDER BY A.tbfcgseq;
+
+        CURSOR  fifo_sales_dat(pi_fs_code   VARCHAR2)
+                        IS  SELECT  A.tbfcgseq, NVL(A.tbfcgqty_unit, 0)+NVL(A.tbfcgrcv_qty, 0)-NVL(A.tbfcgreturn_qty, 0)-NVL(A.tbfcgcompensate_qty, 0)
+                                FROM        tmp_iv_bf_cg_statement A
+                                WHERE       A.tbfcgfinished_code    = pi_fs_code
+                                AND         MOD(A.tbfcgseq, 1)      = 0
+                                ORDER BY A.tbfcgseq;
+
+        CURSOR  ret_dat(pi_fs_code  VARCHAR2)
+                        IS  SELECT  NVL(A.brrsunit_cost, 0), NVL(A.brrsunit_qty, 0)
+                                FROM        tmp_iv_rcv_ret_sales A
+                                WHERE       A.brrsfinished_code = pi_fs_code
+                                AND         A.brrstrans_no          = 'RETURN';
+
+        CURSOR  comp_ret_hdr(pi_fs_code VARCHAR2)
+                        IS  SELECT  A.tbfcgseq seq, NVL(A.tbfcgcost_per_unit, 0) unit_cost,
+                                                NVL(A.tbfcgqty_unit, 0)+NVL(A.tbfcgrcv_qty, 0)-NVL(A.tbfcgreturn_qty, 0) comp_qty
+                                FROM        tmp_iv_bf_cg_statement A
+                                WHERE       A.tbfcgfinished_code            = pi_fs_code
+                                AND         MOD(A.tbfcgseq, 1)              = 0
+                                AND         NVL(A.tbfcgqty_unit, 0)+NVL(A.tbfcgrcv_qty, 0)-NVL(A.tbfcgreturn_qty, 0)    < 0
+                                AND         (NVL(A.tbfcgreturn_qty, 0) > 0 OR NVL(A.tbfcgqty_unit, 0) < 0)
+                                ORDER BY DECODE(SIGN(NVL(A.tbfcgqty_unit, 0)), -1, -1, 1), A.tbfcgseq;
+
+        CURSOR  comp_ret_dtl(   pi_fs_code  VARCHAR2,
+                                                    pi_seq          NUMBER)
+                        IS  SELECT  A.tbfcgseq seq, NVL(A.tbfcgcost_per_unit, 0) unit_cost,
+                                                NVL(A.tbfcgqty_unit, 0)+NVL(A.tbfcgrcv_qty, 0)-NVL(A.tbfcgreturn_qty, 0)-NVL(A.tbfcgcompensate_qty, 0) bf_qty
+                                FROM        tmp_iv_bf_cg_statement A
+                                WHERE       A.tbfcgfinished_code    = pi_fs_code
+                                AND         MOD(A.tbfcgseq, 1)      = 0
+                                AND         A.tbfcgseq                      != pi_seq
+                                AND         NVL(A.tbfcgqty_unit, 0)+NVL(A.tbfcgrcv_qty, 0)-NVL(A.tbfcgreturn_qty, 0)-NVL(A.tbfcgcompensate_qty, 0)  > 0
+                                ORDER BY A.tbfcgseq;
+
+        t_fs_code       fs_tab  := NULL;
+        t_fs_seq        num_tab;
+        t_bf_qty        num_tab;
+        t_unit_cost num_tab := NULL;
+        t_ret_cost  num_tab := NULL;
+        t_ret_qty       num_tab;
+
+        n_return_qty    NUMBER;
+        n_sales_qty     NUMBER;
+        n_used_qty      NUMBER;
+        n_unit_qty      NUMBER;
+        n_comp_amt      NUMBER;
+        n_cnt_rec           iv_bf_cg_statement.bfcgseq%TYPE;
+        n_cnt_rec_bf    iv_bf_cg_statement.bfcgseq%TYPE;
+        n_max_seq           iv_bf_cg_statement.bfcgseq%TYPE;
+
+        v_tmp_bf_cg     tmp_iv_bf_cg_statement%ROWTYPE;
+
+    BEGIN
+--- Insert the rest FS code that has return; but no B/F and receive ---
+        OPEN    fs_dat;
+        FETCH fs_dat BULK COLLECT INTO t_fs_code, t_unit_cost;
+        CLOSE   fs_dat;
+
+        IF  t_fs_code.COUNT > 0 THEN
+                FOR i IN t_fs_code.FIRST..t_fs_code.LAST LOOP
+                        BEGIN
+                            INSERT INTO tmp_iv_bf_cg_statement( tbfcgfinished_code,
+                                                                                                    tbfcgseq,
+                                                                                                    tbfcgcost_per_unit,
+                                                                                                    tbfcgrcv_qty)
+                            VALUES (t_fs_code(i),
+                                            PKGIV_MISTINE_STATEMENT.FNCGET_SEQ_IV_BF_CG_STATEMENT(t_fs_code(i)),
+                                            t_unit_cost(i),
+                                            0);
+                        END;
+                END LOOP;
+        END IF; -- t_fs_code.COUNT > 0
+--- Insert the rest FS code that has sales; but no B/F and receive ---
+        t_fs_code   := NULL;
+
+        OPEN    fs_dat2;
+        FETCH fs_dat2 BULK COLLECT INTO t_fs_code;
+        CLOSE   fs_dat2;
+
+        IF  t_fs_code.COUNT > 0 THEN
+                FORALL i IN t_fs_code.FIRST..t_fs_code.LAST SAVE EXCEPTIONS
+                    INSERT INTO tmp_iv_bf_cg_statement( tbfcgfinished_code,
+                                                                                            tbfcgseq,
+                                                                                            tbfcgcost_per_unit,
+                                                                                            tbfcgrcv_qty)
+                    VALUES (t_fs_code(i),
+                                    1,
+                                    PKGIV_MISTINE_STATEMENT.FNCGET_UNIT_COST(PKGIV_MISTINE_STATEMENT.v_ou_code, t_fs_code(i)),
+                                    0);
+        END IF; -- t_fs_code.COUNT > 0
+--- Start process sales/return transaction ---
+        t_fs_code   := NULL;
+
+        OPEN    fs_code;
+        FETCH   fs_code BULK COLLECT INTO t_fs_code;
+        CLOSE   fs_code;
+
+        IF  t_fs_code.COUNT > 0 THEN
+                FOR i IN t_fs_code.FIRST..t_fs_code.LAST LOOP
+                        v_tmp_bf_cg     := NULL;
+                        n_sales_qty     := 0;
+                        n_return_qty    := 0;
+                        n_cnt_rec           := 0;
+                        n_cnt_rec_bf    := 0;
+                        n_max_seq           := 1;
+
+                        BEGIN
+                            SELECT  NVL(SUM(DECODE(A.brrstrans_no, 'SALES', NVL(A.brrsunit_qty, 0), 0)), 0),
+                                            NVL(SUM(DECODE(A.brrstrans_no, 'RETURN', NVL(A.brrsunit_qty, 0), 0)), 0)
+                            INTO        n_sales_qty, n_return_qty
+                            FROM        tmp_iv_rcv_ret_sales A
+                            WHERE       A.brrsfinished_code = t_fs_code(i)
+                            AND         A.brrstrans_no          IN ('RETURN', 'SALES');
+                            EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+                        END;
+
+                        BEGIN
+                            SELECT  COUNT(*), NVL(MAX(A.tbfcgseq), 1),
+                                            COUNT(( CASE
+                                                                WHEN    NVL(A.tbfcgqty_unit, 0) + NVL(A.tbfcgrcv_qty, 0) > 0 THEN 1
+                                                                ELSE    NULL
+                                                            END))
+                            INTO        n_cnt_rec, n_max_seq, n_cnt_rec_bf
+                            FROM        tmp_iv_bf_cg_statement A
+                            WHERE       A.tbfcgfinished_code    = t_fs_code(i);
+                            EXCEPTION WHEN NO_DATA_FOUND THEN NULL;
+                        END;
+
+                        v_tmp_bf_cg.tbfcgfinished_code  := t_fs_code(i);
+
+                        IF  n_cnt_rec = 1 THEN
+                                --- Both Sales and Return ---
+                                v_tmp_bf_cg.tbfcgseq                            := n_max_seq;
+                                v_tmp_bf_cg.tbfcgreturn_qty             := n_return_qty;
+                                v_tmp_bf_cg.tbfcgsales_qty              := n_sales_qty;
+                                v_tmp_bf_cg.tbfcgcompensate_qty     := 0;
+                                v_tmp_bf_cg.tbfcgcompensate_amt     := 0;
+                                v_tmp_bf_cg.tbfcgcomp_qty_loc           := 0;
+                                v_tmp_bf_cg.tbfcgcompensate_flag    := 'N';
+
+                                PKGIV_MISTINE_STATEMENT.PRCUPD_TMP_IV_BF_CG(v_tmp_bf_cg);
+                        ELSIF   n_cnt_rec > 1 THEN
+                                IF  n_return_qty != 0 THEN
+                                        t_fs_seq        := NULL;
+                                        t_bf_qty        := NULL;
+                                        t_unit_cost := NULL;
+
+                                        OPEN    fifo_ret_dat(t_fs_code(i));
+                                        FETCH fifo_ret_dat BULK COLLECT INTO t_fs_seq, t_unit_cost, t_bf_qty;
+                                        CLOSE   fifo_ret_dat;
+
+                                        t_ret_cost      := NULL;
+                                        t_ret_qty           := NULL;
+
+                                        OPEN    ret_dat(t_fs_code(i));
+                                        FETCH   ret_dat BULK COLLECT INTO t_ret_cost, t_ret_qty;
+                                        CLOSE   ret_dat;
+
+                                        FOR j IN t_ret_cost.FIRST..t_ret_cost.LAST LOOP
+                                                FOR k IN t_fs_seq.FIRST..t_fs_seq.LAST LOOP
+                                                        IF  t_unit_cost(k) = t_ret_cost(j) THEN
+                                                                v_tmp_bf_cg.tbfcgseq                            := t_fs_seq(k);
+                                                                v_tmp_bf_cg.tbfcgsales_qty              := 0;
+                                                                v_tmp_bf_cg.tbfcgreturn_qty             := t_ret_qty(j);
+                                                                v_tmp_bf_cg.tbfcgcompensate_qty     := 0;
+                                                                v_tmp_bf_cg.tbfcgcompensate_amt     := 0;
+                                                                v_tmp_bf_cg.tbfcgcomp_qty_loc           := 0;
+                                                                v_tmp_bf_cg.tbfcgcompensate_flag    := 'N';
+
+                                                                PKGIV_MISTINE_STATEMENT.PRCUPD_TMP_IV_BF_CG(v_tmp_bf_cg);
+
+                                                                EXIT;
+                                                        END IF; -- t_unit_cost(k) = t_ret_cost(j)
+                                                END LOOP; -- k IN t_fs_seq.FIRST..t_fs_seq.LAST
+                                        END LOOP; -- j IN t_ret_cost.FIRST..t_ret_cost.LAST
+
+                                        FOR hd IN comp_ret_hdr(t_fs_code(i)) LOOP
+                                                n_unit_qty  := ABS(hd.comp_qty);
+                                                n_comp_amt  := 0;
+
+                                                FOR dt IN comp_ret_dtl(t_fs_code(i), hd.seq) LOOP
+                                                        n_used_qty  := LEAST(dt.bf_qty, n_unit_qty);
+                                                        n_unit_qty  := n_unit_qty - n_used_qty;
+
+                                                        IF  n_used_qty > 0 THEN
+                                                                n_comp_amt  := NVL(n_comp_amt, 0) + ((dt.unit_cost - hd.unit_cost) * n_used_qty);
+
+                                                                /* Update compensate qty to main record of giver */
+                                                                v_tmp_bf_cg.tbfcgseq                            := dt.seq;
+                                                                v_tmp_bf_cg.tbfcgsales_qty              := 0;
+                                                                v_tmp_bf_cg.tbfcgreturn_qty             := 0;
+                                                                v_tmp_bf_cg.tbfcgcompensate_qty     := n_used_qty;
+                                                                v_tmp_bf_cg.tbfcgcompensate_amt     := 0;
+                                                                v_tmp_bf_cg.tbfcgcomp_qty_loc           := 0;
+                                                                v_tmp_bf_cg.tbfcgcompensate_flag    := 'Y';
+
+                                                                PKGIV_MISTINE_STATEMENT.PRCUPD_TMP_IV_BF_CG(v_tmp_bf_cg);
+
+                                                                /* Update compensate flag to main record of borrower */
+                                                                v_tmp_bf_cg.tbfcgseq                            := hd.seq;
+                                                                v_tmp_bf_cg.tbfcgsales_qty              := 0;
+                                                                v_tmp_bf_cg.tbfcgreturn_qty             := 0;
+                                                                v_tmp_bf_cg.tbfcgcompensate_qty     := 0;
+                                                                v_tmp_bf_cg.tbfcgcompensate_amt     := 0;
+                                                                v_tmp_bf_cg.tbfcgcomp_qty_loc           := n_used_qty;
+                                                                v_tmp_bf_cg.tbfcgcompensate_flag    := 'B';
+
+                                                                PKGIV_MISTINE_STATEMENT.PRCUPD_TMP_IV_BF_CG(v_tmp_bf_cg);
+                                                        END IF; -- n_used_qty > 0
+
+                                                        IF  n_unit_qty <= 0 THEN
+                                                                EXIT;
+                                                        END IF; -- n_unit_qty <= 0
+                                                END LOOP; -- dt IN comp_ret_dtl(t_fs_code(i), hd.seq)
+
+                                                /* Update compensate flag and amount to sub record of borrower */
+                                                v_tmp_bf_cg.tbfcgseq                            := hd.seq+0.1;
+                                                v_tmp_bf_cg.tbfcgsales_qty              := 0;
+                                                v_tmp_bf_cg.tbfcgreturn_qty             := 0;
+                                                v_tmp_bf_cg.tbfcgcompensate_qty     := 0;
+                                                v_tmp_bf_cg.tbfcgcompensate_amt     := n_comp_amt;
+                                                v_tmp_bf_cg.tbfcgcomp_qty_loc           := 0;
+                                                v_tmp_bf_cg.tbfcgcompensate_flag    := 'Y';
+
+                                                PKGIV_MISTINE_STATEMENT.PRCUPD_TMP_IV_BF_CG(v_tmp_bf_cg, 'C');
+                                        END LOOP; -- hd IN comp_ret_hdr(t_fs_code(i))
+                                END IF; -- n_return_qty != 0
+
+                                IF  n_sales_qty != 0 THEN
+                                        t_fs_seq        := NULL;
+                                        t_bf_qty        := NULL;
+
+                                        OPEN    fifo_sales_dat(t_fs_code(i));
+                                        FETCH fifo_sales_dat BULK COLLECT INTO t_fs_seq, t_bf_qty;
+                                        CLOSE   fifo_sales_dat;
+
+                                        FOR j IN t_fs_seq.FIRST..t_fs_seq.LAST LOOP
+                                                IF  t_bf_qty(j) > 0 OR j = t_fs_seq.LAST /*OR n_sales_qty < 0*/ THEN
+                                                        IF  n_sales_qty < 0 OR j = t_fs_seq.LAST THEN
+                                                                n_used_qty  := n_sales_qty;
+                                                                n_sales_qty := 0;
+                                                        ELSE
+                                                                n_used_qty  := GREATEST(LEAST(t_bf_qty(j), n_sales_qty), 0);
+                                                                n_sales_qty := GREATEST(n_sales_qty - n_used_qty, 0);
+                                                        END IF; -- n_sales_qty < 0 OR j = t_fs_seq.LAST
+
+                                                        IF  n_used_qty != 0 THEN
+                                                                v_tmp_bf_cg.tbfcgseq                            := t_fs_seq(j);
+                                                                v_tmp_bf_cg.tbfcgsales_qty              := n_used_qty;
+                                                                v_tmp_bf_cg.tbfcgreturn_qty             := 0;
+                                                                v_tmp_bf_cg.tbfcgcompensate_qty     := 0;
+                                                                v_tmp_bf_cg.tbfcgcompensate_amt     := 0;
+                                                                v_tmp_bf_cg.tbfcgcomp_qty_loc           := 0;
+                                                                v_tmp_bf_cg.tbfcgcompensate_flag    := 'N';
+
+                                                                PKGIV_MISTINE_STATEMENT.PRCUPD_TMP_IV_BF_CG(v_tmp_bf_cg);
+                                                        END IF; -- n_used_qty != 0
+
+                                                        IF  j < t_fs_seq.LAST AND n_sales_qty = 0 THEN
+                                                                EXIT;
+                                                        END IF; -- j < t_fs_seq.LAST AND n_sales_qty = 0
+                                                END IF; -- t_bf_qty(j) > 0 OR j = t_fs_seq.LAST /*OR n_sales_qty < 0*/
+                                        END LOOP; -- j IN t_fs_seq.FIRST..t_fs_seq.LAST
+                                END IF; -- n_sales_qty != 0
+                        END IF; -- n_cnt_rec = 1
+                END LOOP; -- i IN t_fs_code.FIRST..t_fs_code.LAST
+        END IF; -- t_fs_code.COUNT > 0
+    END PRCPREPARE_FRIDAY_RET_SALES;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCSETUP_PARAMETER(   piv_ou_code VARCHAR2,
+                                                                pid_st_date DATE,
+                                                                pid_en_date DATE,
+                                                                pid_bf_date DATE,
+                                                                piv_st_supp VARCHAR2,
+                                                                piv_en_supp VARCHAR2,
+                                                                piv_st_fs       VARCHAR2    DEFAULT NULL,
+                                                                piv_en_fs       VARCHAR2    DEFAULT NULL) IS
+    BEGIN
+        BEGIN
+            DELETE  tmp_iv_bf_cg_statement;
+        END;
+
+        BEGIN
+            DELETE  tmp_iv_rcv_ret_sales;
+        END;
+
+        PKGIV_MISTINE_STATEMENT.v_ou_code            := piv_ou_code;
+        PKGIV_MISTINE_STATEMENT.d_start_date     := pid_st_date;
+        PKGIV_MISTINE_STATEMENT.d_end_date           := pid_en_date;
+        PKGIV_MISTINE_STATEMENT.d_bf_date            := pid_bf_date;
+        PKGIV_MISTINE_STATEMENT.v_start_supp     := NVL(piv_st_supp, '!');
+        PKGIV_MISTINE_STATEMENT.v_end_supp           := NVL(piv_en_supp, CHR(250));
+        PKGIV_MISTINE_STATEMENT.v_start_fs           := NVL(piv_st_fs, '!');
+        PKGIV_MISTINE_STATEMENT.v_end_fs             := NVL(piv_en_fs, CHR(250));
+
+        PKGIV_MISTINE_STATEMENT.v_prd_type           := NULL;
+        PKGIV_MISTINE_STATEMENT.v_rcv_type           := NULL;
+        PKGIV_MISTINE_STATEMENT.v_rcv_revers     := NULL;
+        PKGIV_MISTINE_STATEMENT.v_ret_type           := NULL;
+        PKGIV_MISTINE_STATEMENT.v_ret_revers     := NULL;
+        PKGIV_MISTINE_STATEMENT.v_adj_type           := NULL;
+        PKGIV_MISTINE_STATEMENT.v_rcvrev_sub     := NULL;
+        PKGIV_MISTINE_STATEMENT.v_trans_plus     := NULL;
+        PKGIV_MISTINE_STATEMENT.v_trans_minus    := NULL;
+    END PRCSETUP_PARAMETER;
+--------------------------------------------------------------------------------
+    PROCEDURE PRCUPD_TMP_IV_BF_CG(pir_tmp_bf    tmp_iv_bf_cg_statement%ROWTYPE,
+                                                                piv_mode        VARCHAR2    DEFAULT 'N') IS
+    BEGIN
+        IF  piv_mode = 'C' THEN
+                BEGIN
+                    INSERT INTO tmp_iv_bf_cg_statement
+                                (   tbfcgfinished_code,
+                                    tbfcgseq,
+                                    tbfcgcompensate_amt,
+                                    tbfcgcompensate_flag)
+                    VALUES( pir_tmp_bf.tbfcgfinished_code,
+                                    pir_tmp_bf.tbfcgseq,
+                                    NVL(pir_tmp_bf.tbfcgcompensate_amt, 0),
+                                    pir_tmp_bf.tbfcgcompensate_flag);
+                    EXCEPTION WHEN DUP_VAL_ON_INDEX THEN
+                                            BEGIN
+                                                UPDATE  tmp_iv_bf_cg_statement A
+                                                SET         A.tbfcgcompensate_amt       = NVL(A.tbfcgcompensate_amt, 0) + NVL(pir_tmp_bf.tbfcgcompensate_amt, 0)
+                                                WHERE       A.tbfcgfinished_code        = pir_tmp_bf.tbfcgfinished_code
+                                                AND         A.tbfcgseq                          = pir_tmp_bf.tbfcgseq;
+                                            END;
+                END;
+        ELSE
+                BEGIN
+                    UPDATE  tmp_iv_bf_cg_statement A
+                    SET         A.tbfcgreturn_qty               = NVL(A.tbfcgreturn_qty, 0) + NVL(pir_tmp_bf.tbfcgreturn_qty, 0),
+                                    A.tbfcgsales_qty                = NVL(A.tbfcgsales_qty, 0) + NVL(pir_tmp_bf.tbfcgsales_qty, 0),
+                                    A.tbfcgreturn_amount        = ROUND((NVL(A.tbfcgreturn_qty, 0) + NVL(pir_tmp_bf.tbfcgreturn_qty, 0))*A.tbfcgcost_per_unit, 4),
+                                    A.tbfcgsales_amount         = ROUND((NVL(A.tbfcgsales_qty, 0) + NVL(pir_tmp_bf.tbfcgsales_qty, 0))*A.tbfcgcost_per_unit, 4),
+                                    A.tbfcgcompensate_qty       = NVL(A.tbfcgcompensate_qty, 0) + NVL(pir_tmp_bf.tbfcgcompensate_qty, 0),
+                                    A.tbfcgcompensate_amt       = NVL(A.tbfcgcompensate_amt, 0) + NVL(pir_tmp_bf.tbfcgcompensate_amt, 0),
+                                    A.tbfcgcomp_qty_loc         = NVL(A.tbfcgcomp_qty_loc, 0) + NVL(pir_tmp_bf.tbfcgcomp_qty_loc, 0),
+                                    A.tbfcgcompensate_flag  = DECODE(A.tbfcgcompensate_flag, 'Y', 'Y', 'B', 'B', pir_tmp_bf.tbfcgcompensate_flag)
+                    WHERE       A.tbfcgfinished_code        = pir_tmp_bf.tbfcgfinished_code
+                    AND         A.tbfcgseq                          = pir_tmp_bf.tbfcgseq;
+                END;
+        END IF; -- piv_mode = 'C'
+    END PRCUPD_TMP_IV_BF_CG;
+--------------------------------------------------------------------------------
+END PKGIV_MISTINE_STATEMENT;
+/
